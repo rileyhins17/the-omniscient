@@ -22,5 +22,43 @@ model Lead {
   websiteStatus String?
   contactName   String?
   tacticalNote  String?
+
+  // Legacy score (kept for backwards compat)
+  leadScore     Int?
+  websiteGrade  String?
+
+  // ═══ AXIOM ENGINE v4 FIELDS ═══
+  // Sales-Probability Score
+  axiomScore          Int?
+  axiomTier           String?   // S, A, B, C, D
+  scoreBreakdown      String?   // JSON: { businessValue, painOpportunity, reachability, localFit }
+
+  // Pain Signals
+  painSignals         String?   // JSON array of { type, severity, evidence, source }
+
+  // Call Sheet
+  callOpener          String?
+  followUpQuestion    String?
+
+  // Axiom Website Assessment
+  axiomWebsiteAssessment String?  // JSON: { speedRisk, conversionRisk, trustRisk, seoRisk, overallGrade, topFixes }
+
+  // Deduplication
+  dedupeKey           String?
+  dedupeMatchedBy     String?
+
+  // Contact Quality
+  emailType           String?   // owner, staff, generic, unknown
+  emailConfidence     Float?    // 0.0 - 1.0
+  phoneConfidence     Float?    // 0.0 - 1.0
+
+  // Disqualifiers
+  disqualifiers       String?   // JSON array of strings
+  disqualifyReason    String?   // Primary reason if archived
+
+  // Metadata
+  source        String?
+  isArchived    Boolean  @default(false)
   createdAt     DateTime @default(now())
+  lastUpdated   DateTime?
 }

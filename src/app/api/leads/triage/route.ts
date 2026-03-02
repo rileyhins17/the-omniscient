@@ -1,0 +1,92 @@
+import { prisma } from "@/lib/prisma";
+import { NextRequest, NextResponse } from "next/server";
+
+/**
+ * GET /api/leads/triage — Fetch filtered leads for triage mode.
+ * Read-only. No engine logic touched.
+ */
+export async function GET(request: NextRequest) {
+    try {
+        const { searchParams } = new URL(request.url);
+
+        const tierParam = searchParams.get("tier") || "S,A,B";
+        const tiers = tierParam.split(",").map(t => t.trim()).filter(Boolean);
+        const noWebsite = searchParams.get("noWebsite") === "1";
+        const hasEmail = searchParams.get("hasEmail") === "1";
+        const hasPhone = searchParams.get("hasPhone") === "1";
+        const minRating = parseFloat(searchParams.get("minRating") || "0");
+        const city = searchParams.get("city") || null;
+        const niche = searchParams.get("niche") || null;
+        const limit = Math.min(parseInt(searchParams.get("limit") || "200", 10), 500);
+        const sort = searchParams.get("sort") || "score";
+
+        const where: any = {
+            isArchived: false,
+        };
+
+        if (tiers.length > 0 && !tiers.includes("ALL")) {
+            // Include leads with matching tiers OR null tier (unscored leads)
+            where.OR = [
+                { axiomTier: { in: tiers } },
+                { axiomTier: null },
+            ];
+        }
+        if (noWebsite) {
+            where.websiteStatus = "MISSING";
+        }
+        if (hasEmail) {
+            where.email = { not: null };
+        }
+        if (hasPhone) {
+            where.phone = { not: null };
+        }
+        if (minRating > 0) {
+            where.rating = { gte: minRating };
+        }
+        if (city) where.city = city;
+        if (niche) where.niche = niche;
+
+        const orderBy: any =
+            sort === "recent"
+                ? { createdAt: "desc" }
+                : { axiomScore: "desc" };
+
+        const leads = await prisma.lead.findMany({
+            where,
+            orderBy,
+            take: limit,
+            select: {
+                id: true,
+                businessName: true,
+                niche: true,
+                city: true,
+                address: true,
+                websiteStatus: true,
+                phone: true,
+                email: true,
+                emailType: true,
+                emailConfidence: true,
+                phoneConfidence: true,
+                axiomScore: true,
+                axiomTier: true,
+                painSignals: true,
+                callOpener: true,
+                followUpQuestion: true,
+                axiomWebsiteAssessment: true,
+                isArchived: true,
+                lastUpdated: true,
+                source: true,
+                rating: true,
+                reviewCount: true,
+            },
+        });
+
+        return NextResponse.json({ leads });
+    } catch (error) {
+        console.error("Triage fetch error:", error);
+        return NextResponse.json(
+            { error: "Internal server error" },
+            { status: 500 }
+        );
+    }
+}
