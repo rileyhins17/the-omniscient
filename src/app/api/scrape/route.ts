@@ -14,6 +14,30 @@ import { validateContact } from "@/lib/contact-validation";
 import { generateDedupeKey } from "@/lib/dedupe";
 import { checkDisqualifiers } from "@/lib/disqualifiers";
 import { generatePersonalization } from "@/lib/lead-personalization";
+import {
+    formatEmailCandidatesForPrompt,
+    resolvePublicBusinessEmail,
+    type EmailDiscoveryPage,
+} from "@/lib/public-email-intelligence";
+import {
+    collectSearchDiscoveryPage,
+    collectWebsiteDiscoveryPages,
+    pickBestSocialLink,
+} from "@/lib/public-web-discovery";
+
+type Target = {
+    businessName: string;
+    website: string;
+    rating: number;
+    reviewCount: number;
+    phone: string;
+    category: string;
+    address: string;
+};
+
+function sanitizeAiJsonResponse(text: string): string {
+    return text.trim().replace(/```json/g, "").replace(/```/g, "").trim();
+}
 
 export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
@@ -26,9 +50,24 @@ export async function GET(req: Request) {
 
     const stream = new ReadableStream({
         async start(controller) {
-            const sendEvent = (data: any) => {
-                controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`));
+            let streamClosed = false;
+            const sendEvent = (data: unknown) => {
+                if (streamClosed) return false;
+                try {
+                    controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(data)}\n\n`));
+                    return true;
+                } catch {
+                    streamClosed = true;
+                    return false;
+                }
             };
+
+            req.signal.addEventListener("abort", () => {
+                streamClosed = true;
+                if (browser) {
+                    void browser.close().catch(() => undefined);
+                }
+            });
 
             try {
                 if (!niche || !city) {
@@ -36,7 +75,6 @@ export async function GET(req: Request) {
                 }
 
                 const source = `${niche}|${city}|${new Date().toISOString().split("T")[0]}`;
-
                 const csvPath = `C:\\Users\\riley\\.gemini\\antigravity\\scratch\\axiom_call_sheet.csv`;
                 const csvHeaders = [
                     { id: "Business_Name", title: "Business_Name" },
@@ -61,28 +99,25 @@ export async function GET(req: Request) {
                     header: csvHeaders,
                     append: fileExists,
                 });
-
-                // Also write JSONL
                 const jsonlPath = `C:\\Users\\riley\\.gemini\\antigravity\\scratch\\axiom_call_sheet.jsonl`;
 
                 browser = await chromium.launch({ headless: true });
                 const context = await browser.newContext({ locale: "en-CA" });
                 const page = await context.newPage();
 
-                sendEvent({ message: `[🚀] AXIOM ENGINE V4 Initialized: ${niche} in ${city} (R:${radius}km, D:${maxDepth})` });
-                sendEvent({ message: `[⚡] Intelligence: Sales-Probability Scoring + Multi-Signal Dedup + Pain Detection + Contact Validation + Auto-Disqualify` });
+                sendEvent({ message: `[ENGINE] AXIOM ENGINE V4 initialized for ${niche} in ${city} (R:${radius}km, D:${maxDepth})` });
+                sendEvent({ message: "[ENGINE] Intelligence modules online: scoring, dedupe, contact validation, public email resolver" });
 
-                // ═══ PHASE 1: GOOGLE MAPS EXTRACTION ═══
                 const query = `${niche} in ${city}, Ontario`;
                 await page.goto(`https://www.google.com/maps/search/${encodeURIComponent(query)}`);
 
                 try {
                     await page.waitForSelector("div[role='feed']", { timeout: 15000 });
-                } catch (e) {
+                } catch {
                     throw new Error("Maps results timed out. No targets found.");
                 }
 
-                sendEvent({ message: `[🌐] Infinite scroll bypass injected...` });
+                sendEvent({ message: "[MAPS] Infinite scroll extraction started" });
 
                 let lastHeight = 0;
                 let scrollAttempts = 0;
@@ -95,115 +130,109 @@ export async function GET(req: Request) {
                         }
                         return 0;
                     });
+
                     if (newHeight === lastHeight) break;
                     lastHeight = newHeight;
                     scrollAttempts++;
                     await page.waitForTimeout(1500);
-                    sendEvent({ message: `[⬇️] Depth ${scrollAttempts}/${maxDepth}...` });
+                    sendEvent({ message: `[MAPS] Depth ${scrollAttempts}/${maxDepth}` });
                 }
 
-                const placeLinks = await page.locator("a.hfpxzc").evaluateAll(anchors =>
-                    anchors.map(a => ({
-                        name: a.getAttribute("aria-label") || "",
-                        url: a.getAttribute("href") || ""
-                    })).filter(p => p.name && p.url && !p.url.includes("/search/"))
+                const placeLinks = await page.locator("a.hfpxzc").evaluateAll((anchors) =>
+                    anchors
+                        .map((anchor) => ({
+                            name: anchor.getAttribute("aria-label") || "",
+                            url: (anchor as HTMLAnchorElement).href || anchor.getAttribute("href") || "",
+                        }))
+                        .filter((place) => place.name && place.url && !place.url.includes("/search/"))
                 );
 
-                sendEvent({ message: `[🔍] Found ${placeLinks.length} listings. Extracting details...` });
+                sendEvent({ message: `[MAPS] Found ${placeLinks.length} listings. Extracting details...` });
 
-                // ═══ PHASE 2: EXTRACT DETAILS FROM PLACE URLs ═══
-                const targets: any[] = [];
-                const CHUNK_SIZE = 5;
+                const targets: Target[] = [];
+                const chunkSize = 5;
 
-                for (let i = 0; i < placeLinks.length; i += CHUNK_SIZE) {
-                    const chunk = placeLinks.slice(i, i + CHUNK_SIZE);
-                    sendEvent({ message: `[⬇️] Extracting details for batch ${Math.floor(i / CHUNK_SIZE) + 1}/${Math.ceil(placeLinks.length / CHUNK_SIZE)}...` });
+                for (let i = 0; i < placeLinks.length; i += chunkSize) {
+                    const chunk = placeLinks.slice(i, i + chunkSize);
+                    sendEvent({ message: `[MAPS] Detail batch ${Math.floor(i / chunkSize) + 1}/${Math.ceil(placeLinks.length / chunkSize)}` });
 
                     const chunkResults = await Promise.all(chunk.map(async (place) => {
-                        const p = await context.newPage();
+                        const detailPage = await context.newPage();
                         try {
-                            await p.goto(place.url, { waitUntil: "domcontentloaded", timeout: 15000 });
-                            await p.waitForSelector('h1', { timeout: 10000 });
+                            await detailPage.goto(place.url, { waitUntil: "domcontentloaded", timeout: 15000 });
+                            await detailPage.waitForSelector("h1", { timeout: 10000 });
 
-                            const data = await p.evaluate(() => {
+                            const detailData = await detailPage.evaluate(() => {
                                 const title = document.querySelector("h1")?.innerText || "";
-
-                                const webBtn = document.querySelector('a[data-item-id="authority"]');
-                                const website = webBtn ? webBtn.getAttribute("href") : "";
-
-                                const phoneBtn = document.querySelector('button[data-item-id*="phone:tel:"]');
+                                const webButton = document.querySelector('a[data-item-id="authority"]');
+                                const website = (webButton as HTMLAnchorElement | null)?.href || webButton?.getAttribute("href") || "";
+                                const phoneButton = document.querySelector('button[data-item-id*="phone:tel:"]');
                                 let phone = "";
-                                if (phoneBtn) {
-                                    phone = phoneBtn.getAttribute("data-item-id")?.replace("phone:tel:", "") || "";
+                                if (phoneButton) {
+                                    phone = phoneButton.getAttribute("data-item-id")?.replace("phone:tel:", "") || "";
                                 } else {
-                                    const allBtns = Array.from(document.querySelectorAll('button[data-tooltip="Copy phone number"]'));
-                                    if (allBtns.length > 0) phone = (allBtns[0] as HTMLElement).innerText;
+                                    const fallbackButtons = Array.from(document.querySelectorAll('button[data-tooltip="Copy phone number"]'));
+                                    if (fallbackButtons.length > 0) phone = (fallbackButtons[0] as HTMLElement).innerText;
                                 }
 
-                                const addBtn = document.querySelector('button[data-item-id="address"]');
-                                const address = addBtn ? addBtn.getAttribute("aria-label")?.replace("Address: ", "") || "" : "";
-
-                                const catBtn = document.querySelector('button[jsaction="pane.rating.category"]');
-                                const category = catBtn ? (catBtn as HTMLElement).innerText : "";
-
+                                const addressButton = document.querySelector('button[data-item-id="address"]');
+                                const address = addressButton?.getAttribute("aria-label")?.replace("Address: ", "") || "";
+                                const categoryButton = document.querySelector('button[jsaction="pane.rating.category"]');
+                                const category = (categoryButton as HTMLElement | null)?.innerText || "";
                                 const ratingDiv = document.querySelector('div[jsaction="pane.rating.moreReviews"]');
-                                const ratingText = ratingDiv ? ratingDiv.getAttribute("aria-label") || "" : ""; // e.g. "4.9 stars 45 Reviews"
+                                const ratingText = ratingDiv?.getAttribute("aria-label") || "";
 
                                 return { title, website, phone, address, category, ratingText };
                             });
-
-                            await p.close();
-                            return data;
-                        } catch (e) {
-                            await p.close();
+                            return detailData;
+                        } catch {
                             return null;
+                        } finally {
+                            await detailPage.close();
                         }
                     }));
 
                     for (const res of chunkResults) {
-                        if (res && res.title) {
-                            let rating = 0;
-                            let reviewCount = 0;
-                            if (res.ratingText) {
-                                const rMatch = res.ratingText.match(/([\d.]+)\s*stars?\s*([\d,]+)/i);
-                                if (rMatch) {
-                                    rating = parseFloat(rMatch[1]);
-                                    reviewCount = parseInt(rMatch[2].replace(/,/g, ""), 10);
-                                }
+                        if (!res || !res.title) continue;
+
+                        let rating = 0;
+                        let reviewCount = 0;
+                        if (res.ratingText) {
+                            const match = res.ratingText.match(/([\d.]+)\s*stars?\s*([\d,]+)/i);
+                            if (match) {
+                                rating = parseFloat(match[1]);
+                                reviewCount = parseInt(match[2].replace(/,/g, ""), 10);
                             }
-                            targets.push({
-                                businessName: res.title,
-                                website: res.website,
-                                rating,
-                                reviewCount,
-                                phone: res.phone,
-                                category: res.category,
-                                address: res.address
-                            });
                         }
+
+                        targets.push({
+                            businessName: res.title,
+                            website: res.website,
+                            rating,
+                            reviewCount,
+                            phone: res.phone,
+                            category: res.category,
+                            address: res.address,
+                        });
                     }
                 }
 
-                sendEvent({ message: `[🎯] ${targets.length} targets parsed. Starting Axiom intelligence pipeline...`, progress: 0, total: targets.length });
+                sendEvent({ message: `[ENGINE] ${targets.length} targets parsed. Starting enrichment...`, progress: 0, total: targets.length });
 
-                // ═══ PHASE 3: LOAD EXISTING DEDUPE KEYS ═══
                 const existingLeads = await prisma.lead.findMany({
                     select: { dedupeKey: true, businessName: true, city: true, phone: true },
                 });
+
                 const existingDedupeKeys = new Set<string>();
-                for (const el of existingLeads) {
-                    if (el.dedupeKey) {
-                        existingDedupeKeys.add(el.dedupeKey);
+                for (const lead of existingLeads) {
+                    if (lead.dedupeKey) {
+                        existingDedupeKeys.add(lead.dedupeKey);
                     } else {
-                        // Fallback for leads without dedupeKey (pre-v4)
-                        const fallback = generateDedupeKey(el.businessName, el.city || "", el.phone);
+                        const fallback = generateDedupeKey(lead.businessName, lead.city || "", lead.phone);
                         existingDedupeKeys.add(fallback.key);
                     }
                 }
 
-                sendEvent({ message: `[🔑] Loaded ${existingDedupeKeys.size} existing dedupe keys` });
-
-                // ═══ PHASE 4: AI + ENRICHMENT ═══
                 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
                 const model = genAI.getGenerativeModel({
                     model: "gemini-2.5-pro",
@@ -223,16 +252,19 @@ export async function GET(req: Request) {
 
                 for (let idx = 0; idx < targets.length; idx++) {
                     const target = targets[idx];
-
-                    // ═══ MULTI-SIGNAL DEDUP ═══
+                    if (streamClosed) break;
                     const dedupe = generateDedupeKey(
-                        target.businessName, city!, target.phone, target.website, target.address
+                        target.businessName,
+                        city,
+                        target.phone,
+                        target.website,
+                        target.address,
                     );
 
                     if (existingDedupeKeys.has(dedupe.key)) {
                         dupCount++;
                         sendEvent({
-                            message: `[♻️] DEDUP (${dedupe.matchedBy}): ${target.businessName} — key:${dedupe.key.substring(0, 30)}...`,
+                            message: `[DEDUPE] ${target.businessName} skipped (${dedupe.matchedBy})`,
                             progress: idx + 1,
                             total: targets.length,
                             stats: { leadsFound: savedCount, withEmail: emailCount },
@@ -241,45 +273,64 @@ export async function GET(req: Request) {
                     }
                     existingDedupeKeys.add(dedupe.key);
 
-                    sendEvent({ message: `[⚙️] Enriching [${idx + 1}/${targets.length}]: ${target.businessName}...`, progress: idx, total: targets.length, stats: { leadsFound: savedCount, withEmail: emailCount } });
+                    sendEvent({
+                        message: `[ENRICH] ${idx + 1}/${targets.length} ${target.businessName}`,
+                        progress: idx,
+                        total: targets.length,
+                        stats: { leadsFound: savedCount, withEmail: emailCount },
+                    });
 
-                    const searchPage = await context.newPage();
                     let rawFootprint = "";
                     let email = "";
                     let ownerName = "";
                     let socialLink = "";
                     let websiteStatus = "MISSING";
+                    let discoveryPages: EmailDiscoveryPage[] = [];
 
                     try {
                         if (target.website) {
                             websiteStatus = "ACTIVE";
-                            sendEvent({ message: `[🌐] Deep scan: ${target.website.substring(0, 50)}...` });
-                            await searchPage.goto(target.website, { waitUntil: "domcontentloaded", timeout: 15000 });
-                            rawFootprint = await searchPage.locator("body").innerText();
-                            const allLinks = await searchPage.locator("a").evaluateAll(a => a.map(n => n.getAttribute("href")).filter(h => h && h.startsWith("http")));
-                            rawFootprint += "\n\nDISCOVERED LINKS:\n" + allLinks.join("\n");
+                            sendEvent({ message: `[WEB] Deep scan ${target.website.substring(0, 70)}` });
+                            const discovery = await collectWebsiteDiscoveryPages(context, target.website, sendEvent);
+                            rawFootprint = discovery.rawFootprint;
+                            discoveryPages = discovery.pages;
+                            socialLink = pickBestSocialLink(discovery.pages);
                         } else {
-                            sendEvent({ message: `[🔍] No website. Searching digital footprint...` });
-                            const sQuery = `"${target.businessName}" ${city} email OR owner OR facebook OR linkedin`;
-                            await searchPage.goto(`https://www.google.com/search?q=${encodeURIComponent(sQuery)}`, { waitUntil: "domcontentloaded" });
-                            await searchPage.waitForSelector("#search", { timeout: 10000 });
-                            rawFootprint = await searchPage.locator("#search").innerText();
-                            const allLinks = await searchPage.locator("#search a").evaluateAll(a => a.map(n => n.getAttribute("href")).filter(h => h && h.startsWith("http")));
-                            rawFootprint += "\n\nDISCOVERED LINKS:\n" + allLinks.join("\n");
+                            sendEvent({ message: "[WEB] No website. Searching public footprint..." });
+                            const searchQuery = `"${target.businessName}" ${city} email OR owner OR founder OR facebook OR linkedin`;
+                            const discovery = await collectSearchDiscoveryPage(context, searchQuery);
+                            rawFootprint = discovery.rawFootprint;
+                            discoveryPages = discovery.pages;
+                            socialLink = pickBestSocialLink(discovery.pages);
                         }
-                    } catch (err) {
-                        // Ignore timeout
-                    } finally {
-                        await searchPage.close();
+                    } catch {
+                        // Ignore enrichment timeouts and continue with what we have.
                     }
 
-                    // ═══ AI ANALYSIS — AXIOM READINESS ═══
+                    let emailResolution = resolvePublicBusinessEmail({
+                        businessName: target.businessName,
+                        businessWebsite: target.website,
+                        pages: discoveryPages,
+                    });
+                    email = emailResolution.email;
+
+                    if (emailResolution.email) {
+                        sendEvent({
+                            message: `[EMAIL] Resolver candidate ${emailResolution.email} (${emailResolution.emailType}/${emailResolution.confidence.toFixed(2)})`,
+                        });
+                    } else {
+                        sendEvent({ message: "[EMAIL] Resolver found no vetted public email" });
+                    }
+
                     let assessment: WebsiteAssessment | null = null;
                     let painSignals: PainSignal[] = [];
                     let tacticalNote = "No intelligence generated.";
+                    let hasContactForm = false;
+                    let hasSocialMessaging = /facebook|instagram|messenger/i.test(socialLink);
 
                     if (process.env.GEMINI_API_KEY) {
                         try {
+                            const vettedEmailCandidates = formatEmailCandidatesForPrompt(emailResolution.candidates);
                             const prompt = websiteStatus === "ACTIVE"
                                 ? `You are an elite B2B web analyst evaluating a local business website for a web design agency.
 Business: ${target.businessName} | Location: ${city} | Niche: ${niche} | Category: ${target.category}
@@ -289,135 +340,158 @@ Rating: ${target.rating}/5 (${target.reviewCount} reviews)
 WEBSITE CONTENT & LINKS:
 ${rawFootprint.substring(0, 15000)}
 
-Evaluate this website and return a JSON object (no markdown, no \`\`\`json wrappers):
+VETTED PUBLIC EMAIL CANDIDATES:
+${vettedEmailCandidates}
+
+EMAIL RULES:
+- You may only return an email that appears exactly in the vetted public email candidates list above.
+- If no candidate is clearly usable for outreach, return "".
+- Prefer public owner, founder, director, or person-named inboxes over generic inboxes.
+- Never invent, normalize, or guess an email.
+
+Return a JSON object (no markdown, no code fences):
 {
-  "email": "Valid contact email or empty string",
+  "email": "Exact email from the vetted candidate list or empty string",
   "ownerName": "Owner/founder/contact person or empty string",
   "socialLink": "Best social media link (FB, IG, LinkedIn) or empty string",
   "websiteAssessment": {
-    "speedRisk": 0-5 (0=fast, 5=very slow. Check for heavy images, no lazy loading, large unoptimized assets, slow server response indicators),
-    "conversionRisk": 0-5 (0=strong funnel, 5=no conversion path. Check for: CTA buttons, booking/quote forms, click-to-call, lead capture, appointment scheduling),
-    "trustRisk": 0-5 (0=trustworthy, 5=major issues. Check for: SSL, outdated copyright year, broken links, missing analytics, malware/spam signals, mixed content),
-    "seoRisk": 0-5 (0=well optimized, 5=poor. Check for: missing schema, no meta descriptions, thin content, no local business markup, poor mobile responsiveness),
-    "overallGrade": "A through F based on total risk score",
-    "topFixes": ["Fix 1", "Fix 2", "Fix 3"] (3 specific actionable fixes Axiom could sell)
+    "speedRisk": 0-5,
+    "conversionRisk": 0-5,
+    "trustRisk": 0-5,
+    "seoRisk": 0-5,
+    "overallGrade": "A through F",
+    "topFixes": ["Fix 1", "Fix 2", "Fix 3"]
   },
   "painSignals": [
     {"type": "CONVERSION|SPEED|TRUST|SEO|DESIGN|FUNCTIONALITY", "severity": 1-5, "evidence": "Specific evidence from the site", "source": "site_scan"}
-  ] (2-6 pain signals, each with concrete evidence from the actual site content),
+  ],
   "hasContactForm": true/false,
   "hasSocialMessaging": true/false,
   "tacticalNote": "1-2 sentence critical evaluation"
 }`
-                                : `You are an elite B2B web analyst evaluating a local business with NO website.
+                                : `You are an elite B2B web analyst evaluating a local business with no website.
 Business: ${target.businessName} | Location: ${city} | Niche: ${niche} | Category: ${target.category}
 Rating: ${target.rating}/5 (${target.reviewCount} reviews)
 
 RAW SEARCH FOOTPRINT:
 ${rawFootprint.substring(0, 15000)}
 
-Return a JSON object (no markdown, no \`\`\`json wrappers):
+VETTED PUBLIC EMAIL CANDIDATES:
+${vettedEmailCandidates}
+
+EMAIL RULES:
+- You may only return an email that appears exactly in the vetted public email candidates list above.
+- If no candidate is clearly usable for outreach, return "".
+- Prefer public owner, founder, director, or person-named inboxes over generic inboxes.
+- Never invent, normalize, or guess an email.
+
+Return a JSON object (no markdown, no code fences):
 {
-  "email": "Valid contact email or empty string. Ignore sentry.io or google links.",
+  "email": "Exact email from the vetted candidate list or empty string",
   "ownerName": "Owner/founder/director or empty string",
   "socialLink": "Best social media link (Facebook, Instagram, LinkedIn) or empty string",
   "websiteAssessment": null,
   "painSignals": [
     {"type": "NO_WEBSITE", "severity": 4, "evidence": "Specific evidence about their lack of web presence vs competitors", "source": "heuristic"},
     {"type": "CONVERSION", "severity": 3, "evidence": "How they are losing leads without a website", "source": "heuristic"}
-  ] (2-4 pain signals based on available data),
+  ],
   "hasContactForm": false,
-  "hasSocialMessaging": true/false (based on Facebook/messenger presence),
-  "tacticalNote": "1-sentence note about their strongest online platform or lack thereof"
+  "hasSocialMessaging": true/false,
+  "tacticalNote": "1 sentence about their strongest online platform or lack thereof"
 }`;
 
                             const result = await model.generateContent(prompt);
-                            const textResp = result.response.text().trim().replace(/```json/g, "").replace(/```/g, "").trim();
+                            const textResponse = sanitizeAiJsonResponse(result.response.text());
+                            const aiData = JSON.parse(textResponse) as {
+                                email?: string;
+                                ownerName?: string;
+                                socialLink?: string;
+                                websiteAssessment?: {
+                                    speedRisk?: number;
+                                    conversionRisk?: number;
+                                    trustRisk?: number;
+                                    seoRisk?: number;
+                                    overallGrade?: string;
+                                    topFixes?: string[];
+                                } | null;
+                                painSignals?: Array<{ type?: string; severity?: number; evidence?: string; source?: string }>;
+                                hasContactForm?: boolean;
+                                hasSocialMessaging?: boolean;
+                                tacticalNote?: string;
+                            };
 
-                            try {
-                                const aiData = JSON.parse(textResp);
-                                email = aiData.email || email;
-                                ownerName = aiData.ownerName || ownerName;
-                                socialLink = aiData.socialLink || socialLink;
-                                tacticalNote = aiData.tacticalNote || "Intelligence parsed but analysis empty.";
+                            ownerName = aiData.ownerName || ownerName;
+                            socialLink = aiData.socialLink || socialLink;
+                            tacticalNote = aiData.tacticalNote || tacticalNote;
+                            hasContactForm = aiData.hasContactForm === true;
+                            hasSocialMessaging = aiData.hasSocialMessaging === true || hasSocialMessaging;
 
-                                if (aiData.websiteAssessment) {
-                                    assessment = {
-                                        speedRisk: Math.min(aiData.websiteAssessment.speedRisk || 0, 5),
-                                        conversionRisk: Math.min(aiData.websiteAssessment.conversionRisk || 0, 5),
-                                        trustRisk: Math.min(aiData.websiteAssessment.trustRisk || 0, 5),
-                                        seoRisk: Math.min(aiData.websiteAssessment.seoRisk || 0, 5),
-                                        overallGrade: aiData.websiteAssessment.overallGrade || "C",
-                                        topFixes: (aiData.websiteAssessment.topFixes || []).slice(0, 3),
-                                    };
-                                }
-
-                                if (Array.isArray(aiData.painSignals)) {
-                                    painSignals = aiData.painSignals
-                                        .filter((s: any) => s && s.type && s.evidence)
-                                        .map((s: any) => ({
-                                            type: s.type,
-                                            severity: Math.min(Math.max(s.severity || 1, 1), 5),
-                                            evidence: s.evidence,
-                                            source: s.source || "ai_analysis",
-                                        }));
-                                }
-
-                                // Add no-website pain if missing
-                                if (websiteStatus === "MISSING" && !painSignals.some(p => p.type === "NO_WEBSITE")) {
-                                    painSignals.unshift({
-                                        type: "NO_WEBSITE",
-                                        severity: 4,
-                                        evidence: `${target.businessName} has no website — relying solely on Google listing and word-of-mouth`,
-                                        source: "heuristic",
-                                    });
-                                }
-
-                                var hasContactForm = aiData.hasContactForm === true;
-                                var hasSocialMessaging = aiData.hasSocialMessaging === true;
-                            } catch (parseErr) {
-                                console.error("JSON parse failed:", textResp);
-                                tacticalNote = `AI parsing error: ${textResp.substring(0, 50)}`;
-                                var hasContactForm = false;
-                                var hasSocialMessaging = false;
+                            if (aiData.websiteAssessment) {
+                                assessment = {
+                                    speedRisk: Math.min(aiData.websiteAssessment.speedRisk || 0, 5),
+                                    conversionRisk: Math.min(aiData.websiteAssessment.conversionRisk || 0, 5),
+                                    trustRisk: Math.min(aiData.websiteAssessment.trustRisk || 0, 5),
+                                    seoRisk: Math.min(aiData.websiteAssessment.seoRisk || 0, 5),
+                                    overallGrade: aiData.websiteAssessment.overallGrade || "C",
+                                    topFixes: (aiData.websiteAssessment.topFixes || []).slice(0, 3),
+                                };
                             }
-                        } catch (geminiErr: any) {
-                            tacticalNote = `AI Error: ${geminiErr.message}`;
-                            var hasContactForm = false;
-                            var hasSocialMessaging = false;
+
+                            if (Array.isArray(aiData.painSignals)) {
+                                painSignals = aiData.painSignals
+                                    .filter((signal) => signal && signal.type && signal.evidence)
+                                    .map((signal) => ({
+                                        type: signal.type as PainSignal["type"],
+                                        severity: Math.min(Math.max(signal.severity || 1, 1), 5),
+                                        evidence: signal.evidence as string,
+                                        source: (signal.source as PainSignal["source"]) || "ai_analysis",
+                                    }));
+                            }
+
+                            emailResolution = resolvePublicBusinessEmail({
+                                businessName: target.businessName,
+                                businessWebsite: target.website,
+                                ownerName,
+                                aiPreferredEmail: aiData.email || "",
+                                pages: discoveryPages,
+                            });
+                            email = emailResolution.email || email;
+                        } catch (geminiError: unknown) {
+                            const message = geminiError instanceof Error ? geminiError.message : "Unknown AI error";
+                            tacticalNote = `AI Error: ${message}`;
                         }
-                    } else {
-                        var hasContactForm = false;
-                        var hasSocialMessaging = false;
                     }
 
-                    // Add base pain signal for no-website if none generated
-                    if (websiteStatus === "MISSING" && painSignals.length === 0) {
-                        painSignals.push({
+                    if (websiteStatus === "MISSING" && !painSignals.some((signal) => signal.type === "NO_WEBSITE")) {
+                        painSignals.unshift({
                             type: "NO_WEBSITE",
                             severity: 4,
-                            evidence: `${target.businessName} has no website but is listed on Google Maps with ${target.reviewCount} reviews`,
-                            source: "maps_data",
+                            evidence: `${target.businessName} has no website and is relying on directory or social presence only`,
+                            source: "heuristic",
                         });
-                        if (target.reviewCount >= 5) {
-                            painSignals.push({
-                                type: "CONVERSION",
-                                severity: 3,
-                                evidence: `Active business with reviews but no web presence — losing leads to competitors`,
-                                source: "heuristic",
-                            });
-                        }
                     }
 
-                    // ═══ CONTACT VALIDATION ═══
-                    const contactValidation = validateContact(email, target.phone);
-                    sendEvent({ message: `[📧] Contact: email=${contactValidation.emailType}(${contactValidation.emailConfidence.toFixed(2)}) phone=${contactValidation.phoneConfidence.toFixed(2)}` });
+                    if (websiteStatus === "MISSING" && painSignals.length === 1 && target.reviewCount >= 5) {
+                        painSignals.push({
+                            type: "CONVERSION",
+                            severity: 3,
+                            evidence: `Active business with ${target.reviewCount} reviews but no web presence is likely losing leads to competitors`,
+                            source: "heuristic",
+                        });
+                    }
 
-                    // ═══ AXIOM SCORING ═══
+                    const contactValidation = validateContact(email, target.phone, {
+                        ownerName,
+                        businessWebsite: target.website,
+                    });
+                    sendEvent({
+                        message: `[EMAIL] Final ${email || "none"} | type=${contactValidation.emailType} | confidence=${contactValidation.emailConfidence.toFixed(2)}`,
+                    });
+
                     const scoreResult = computeAxiomScore({
-                        niche: niche!,
+                        niche,
                         category: target.category,
-                        city: city!,
+                        city,
                         rating: target.rating,
                         reviewCount: target.reviewCount,
                         websiteStatus,
@@ -430,12 +504,11 @@ Return a JSON object (no markdown, no \`\`\`json wrappers):
                         reviewContent: rawFootprint.substring(0, 2000),
                     });
 
-                    // ═══ DISQUALIFIER CHECK ═══
                     const disqualifyResult = checkDisqualifiers({
                         businessName: target.businessName,
-                        niche: niche!,
+                        niche,
                         category: target.category,
-                        city: city!,
+                        city,
                         rating: target.rating,
                         reviewCount: target.reviewCount,
                         websiteStatus,
@@ -446,29 +519,24 @@ Return a JSON object (no markdown, no \`\`\`json wrappers):
                         tier: scoreResult.tier,
                     });
 
-                    // ═══ PERSONALIZATION ═══
                     const personalization = generatePersonalization({
                         businessName: target.businessName,
-                        niche: niche!,
-                        city: city!,
+                        niche,
+                        city,
                         websiteStatus,
                         painSignals,
                         assessment,
                         contactName: ownerName || null,
                     });
 
-                    // ═══ LEGACY SCORE (backwards compat) ═══
-                    const legacyScore = scoreResult.axiomScore; // Map axiomScore to leadScore
-
-                    // ═══ PERSIST ═══
                     const isArchived = disqualifyResult.disqualified;
                     if (isArchived) disqualifiedCount++;
 
-                    const savedLead = await prisma.lead.create({
+                    await prisma.lead.create({
                         data: {
                             businessName: target.businessName,
-                            niche: niche!,
-                            city: city!,
+                            niche,
+                            city,
                             phone: target.phone,
                             rating: target.rating,
                             reviewCount: target.reviewCount,
@@ -477,14 +545,10 @@ Return a JSON object (no markdown, no \`\`\`json wrappers):
                             address: target.address,
                             email,
                             socialLink,
-                            contactName: ownerName,
+                            contactName: ownerName || null,
                             tacticalNote,
-
-                            // Legacy
-                            leadScore: legacyScore,
+                            leadScore: scoreResult.axiomScore,
                             websiteGrade: assessment?.overallGrade || null,
-
-                            // Axiom v4
                             axiomScore: scoreResult.axiomScore,
                             axiomTier: scoreResult.tier,
                             scoreBreakdown: JSON.stringify(scoreResult.breakdown),
@@ -505,9 +569,8 @@ Return a JSON object (no markdown, no \`\`\`json wrappers):
                         },
                     });
 
-                    // Write CSV (call sheet format)
                     if (!isArchived) {
-                        const painSummary = painSignals.slice(0, 3).map(p => p.evidence).join(" | ");
+                        const painSummary = painSignals.slice(0, 3).map((signal) => signal.evidence).join(" | ");
                         const breakdownStr = `BV:${scoreResult.breakdown.businessValue} P:${scoreResult.breakdown.painOpportunity} R:${scoreResult.breakdown.reachability} L:${scoreResult.breakdown.localFit}`;
 
                         await csvWriter.writeRecords([{
@@ -527,18 +590,30 @@ Return a JSON object (no markdown, no \`\`\`json wrappers):
                             Source: source,
                         }]);
 
-                        // JSONL
                         const jsonlRecord = {
-                            businessName: target.businessName, city: city, niche: niche,
-                            phone: target.phone, bestEmail: email,
-                            axiomScore: scoreResult.axiomScore, tier: scoreResult.tier,
+                            businessName: target.businessName,
+                            city,
+                            niche,
+                            phone: target.phone,
+                            bestEmail: email,
+                            axiomScore: scoreResult.axiomScore,
+                            tier: scoreResult.tier,
                             callOpener: personalization.callOpener,
                             followUpQuestion: personalization.followUpQuestion,
-                            painSignals, scoreBreakdown: scoreResult.breakdown,
+                            painSignals,
+                            scoreBreakdown: scoreResult.breakdown,
                             website: target.website || null,
                             websiteGrade: assessment?.overallGrade || null,
-                            assessment, contactValidation,
-                            lastUpdated: new Date().toISOString(), source,
+                            assessment,
+                            contactValidation,
+                            emailResolution: {
+                                email: emailResolution.email,
+                                confidence: emailResolution.confidence,
+                                reason: emailResolution.reason,
+                                candidateCount: emailResolution.candidates.length,
+                            },
+                            lastUpdated: new Date().toISOString(),
+                            source,
                         };
                         fs.appendFileSync(jsonlPath, JSON.stringify(jsonlRecord) + "\n");
                     }
@@ -547,31 +622,31 @@ Return a JSON object (no markdown, no \`\`\`json wrappers):
                     if (email) emailCount++;
                     tierCounts[scoreResult.tier] = (tierCounts[scoreResult.tier] || 0) + 1;
 
-                    const gradeStr = assessment ? ` | Grade: ${assessment.overallGrade}` : "";
-                    const dqStr = isArchived ? " | ❌ DISQUALIFIED" : "";
-                    const painCount = painSignals.length;
+                    const grade = assessment ? ` | Grade: ${assessment.overallGrade}` : "";
+                    const disqualifiedLabel = isArchived ? " | DISQUALIFIED" : "";
                     sendEvent({
-                        message: `[🛡️] Axiom: ${scoreResult.axiomScore}/100 [${scoreResult.tier}] (BV:${scoreResult.breakdown.businessValue} P:${scoreResult.breakdown.painOpportunity} R:${scoreResult.breakdown.reachability} L:${scoreResult.breakdown.localFit})${gradeStr} | ${painCount} pains${dqStr} — ${target.businessName}`,
+                        message: `[SCORE] ${scoreResult.axiomScore}/100 [${scoreResult.tier}]${grade}${disqualifiedLabel} - ${target.businessName}`,
                         progress: idx + 1,
                         total: targets.length,
                         stats: { leadsFound: savedCount, withEmail: emailCount },
                     });
                 }
 
-                // ═══ SUMMARY ═══
                 const qualified = savedCount - disqualifiedCount;
-                sendEvent({ message: `\n[✅] ═══ AXIOM EXTRACTION COMPLETE ═══` });
-                sendEvent({ message: `[✅] ${savedCount} processed | ${dupCount} deduped | ${disqualifiedCount} disqualified | ${qualified} qualified` });
-                sendEvent({ message: `[📊] Tiers: S:${tierCounts.S || 0} A:${tierCounts.A || 0} B:${tierCounts.B || 0} C:${tierCounts.C || 0} D:${tierCounts.D || 0}` });
-                sendEvent({ message: `[💾] Call Sheet: ${csvPath}` });
+                sendEvent({ message: "[DONE] AXIOM extraction complete" });
+                sendEvent({ message: `[DONE] ${savedCount} processed | ${dupCount} deduped | ${disqualifiedCount} disqualified | ${qualified} qualified` });
+                sendEvent({ message: `[DONE] Tiers S:${tierCounts.S || 0} A:${tierCounts.A || 0} B:${tierCounts.B || 0} C:${tierCounts.C || 0} D:${tierCounts.D || 0}` });
+                sendEvent({ message: `[DONE] Call sheet written to ${csvPath}` });
                 sendEvent({ _done: true, stats: { leadsFound: savedCount, withEmail: emailCount, avgScore: 0 } });
-
-            } catch (error: any) {
-                console.error("[!] Axiom Engine Error:", error);
-                sendEvent({ error: error.message });
+            } catch (error: unknown) {
+                const message = error instanceof Error ? error.message : "Unknown scrape error";
+                console.error("[SCRAPE_ERROR]", error);
+                sendEvent({ error: message });
             } finally {
                 if (browser) await browser.close();
-                controller.close();
+                if (!streamClosed) {
+                    controller.close();
+                }
             }
         },
     });
