@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { generateXlsx } from './xlsx';
-import { Lead } from '@prisma/client';
+import type { LeadRecord as Lead } from '../prisma';
 
 test("XLSX Exporter Tests", async (t) => {
     const fixtureLeads = [

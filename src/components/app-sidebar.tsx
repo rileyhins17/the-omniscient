@@ -1,6 +1,7 @@
 "use client"
 import * as React from "react"
 import { Target, Database, Settings, Zap, LayoutDashboard, Activity } from "lucide-react"
+import type { Route } from "next"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
@@ -114,7 +115,7 @@ export function AppSidebar() {
                                             tooltip={item.description}
                                         >
                                             <Link
-                                                href={item.url}
+                                                href={item.url as Route}
                                                 className={`
                                                     group relative flex items-center gap-3 rounded-lg px-3 py-2.5 
                                                     transition-all duration-200 ease-out

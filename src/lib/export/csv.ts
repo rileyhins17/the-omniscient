@@ -1,4 +1,4 @@
-import { Lead } from "@prisma/client";
+import type { LeadRecord as Lead } from "../prisma";
 
 export interface CsvColumnDef {
     key: string;

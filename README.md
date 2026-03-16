@@ -1,38 +1,151 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# The Omniscient
 
-## Getting Started
+Private internal Axiom lead-finding and enrichment dashboard, prepared for deployment on Cloudflare Workers via OpenNext.
 
-First, run the development server:
+## What Changed
+
+- Session auth is enforced for the app and API surface, with admin-only protection on scraping, export, deletion, backfill, and settings.
+- Secrets are server-side only. The settings page now reports runtime status instead of storing API keys in the browser.
+- Production persistence is set up for Cloudflare D1, with SQL migrations in [`migrations`](./migrations).
+- Scraping no longer writes to local disk. Exports are generated in-memory and require authenticated admin access.
+- Cloudflare deployment config lives in [`wrangler.jsonc`](./wrangler.jsonc) and [`open-next.config.ts`](./open-next.config.ts).
+
+## Local Development
+
+1. Copy [`.env.example`](./.env.example) to `.env` and fill in real values.
+2. Copy [`.dev.vars.example`](./.dev.vars.example) to `.dev.vars` for local Cloudflare-style runtime values.
+3. Apply the local D1 schema used by Wrangler-backed local dev:
+
+```bash
+wrangler d1 migrations apply axiom-ops-omniscient --local
+```
+
+4. Start the dev server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+5. Open [http://localhost:3000/sign-in](http://localhost:3000/sign-in).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Notes:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Local auth requires `BETTER_AUTH_SECRET`.
+- Sign-up is restricted to `AUTH_ALLOWED_EMAILS`.
+- Admin permissions are granted to emails listed in `AUTH_ADMIN_EMAILS`.
+- `next dev` runs with OpenNext Cloudflare bindings enabled, so `.dev.vars` and local D1 are the default runtime path.
+- Local scraping falls back to Playwright. Cloudflare deploys use the Browser Rendering binding instead.
+- The app runtime reads the Cloudflare `DB` binding directly. There is no Prisma client generation step anymore.
+- On this Windows host, OpenNext still warns that WSL/Linux is the safer environment for production-style builds, even though the validated build path now succeeds locally.
 
-## Learn More
+## Required Environment Variables
 
-To learn more about Next.js, take a look at the following resources:
+App/runtime:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `APP_BASE_URL`
+- `BETTER_AUTH_SECRET`
+- `AUTH_ALLOWED_EMAILS`
+- `AUTH_ADMIN_EMAILS`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Server-only secrets:
 
-## Deploy on Vercel
+- `GEMINI_API_KEY`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Operational limits:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `RATE_LIMIT_WINDOW_SECONDS`
+- `RATE_LIMIT_MAX_AUTH`
+- `RATE_LIMIT_MAX_EXPORT`
+- `RATE_LIMIT_MAX_SCRAPE`
+- `SCRAPE_CONCURRENCY_LIMIT`
+- `SCRAPE_TIMEOUT_MS`
 
-# the-omniscient
+## Cloudflare Deployment
+
+### 1. Create the D1 database
+
+```bash
+wrangler d1 create axiom-ops-omniscient
+```
+
+Copy the returned `database_id` into [`wrangler.jsonc`](./wrangler.jsonc).
+
+### 2. Apply D1 migrations
+
+```bash
+wrangler d1 migrations apply axiom-ops-omniscient --remote
+```
+
+For local Wrangler preview:
+
+```bash
+wrangler d1 migrations apply axiom-ops-omniscient --local
+```
+
+### 3. Configure Cloudflare secrets
+
+```bash
+wrangler secret put BETTER_AUTH_SECRET
+wrangler secret put GEMINI_API_KEY
+```
+
+### 4. Configure Cloudflare vars
+
+Set these in the Worker environment or keep them in [`wrangler.jsonc`](./wrangler.jsonc) and override per environment as needed:
+
+- `APP_BASE_URL=https://ops.getaxiom.ca`
+- `AUTH_ALLOWED_EMAILS`
+- `AUTH_ADMIN_EMAILS`
+- rate-limit and scrape limit values
+
+### 5. Enable Browser Rendering
+
+In Cloudflare, enable Browser Rendering for the Worker and keep the `BROWSER` binding name.
+
+### 6. Build and preview
+
+```bash
+$env:BETTER_AUTH_SECRET='replace-with-at-least-32-characters'
+npm run build:next
+npm run build:cloudflare
+npm run preview
+```
+
+If you want Wrangler preview secrets locally, copy [`.dev.vars.example`](./.dev.vars.example) to `.dev.vars`.
+
+### 7. Deploy
+
+```bash
+npm run deploy
+```
+
+### 8. Attach the domain
+
+Attach `ops.getaxiom.ca` to the deployed Worker in Cloudflare and update `APP_BASE_URL` to the final HTTPS origin.
+
+Recommended:
+
+- Put the Worker behind Cloudflare Access for an extra network-level gate.
+- Restrict admin emails to the two internal operators who should control scraping/export.
+
+## Validation Commands
+
+Next production build:
+
+```bash
+$env:BETTER_AUTH_SECRET='replace-with-at-least-32-characters'
+npm run build:next
+```
+
+Cloudflare/OpenNext build:
+
+```bash
+$env:BETTER_AUTH_SECRET='replace-with-at-least-32-characters'
+npm run build:cloudflare
+```
+
+Generate Cloudflare env typings:
+
+```bash
+npm run cf:typegen
+```

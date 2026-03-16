@@ -1,4 +1,4 @@
-import { Lead } from "@prisma/client";
+import type { LeadRecord as Lead } from "../prisma";
 import { strict as assert } from "node:assert";
 import test from "node:test";
 import { escapeCsv, generateCsv, sortLeadsDeterministic } from "./csv";

@@ -1,16 +1,16 @@
-import type { BrowserContext, Page } from "playwright";
 import {
     pickRelevantContactLinks,
     type EmailDiscoveryPage,
     type ResolvedLink,
 } from "@/lib/public-email-intelligence";
+import type { AutomationBrowserContext, AutomationPage } from "@/lib/browser-rendering";
 
 type PageSnapshot = {
     text: string;
     links: ResolvedLink[];
 };
 
-async function capturePageSnapshot(page: Page): Promise<PageSnapshot> {
+async function capturePageSnapshot(page: AutomationPage): Promise<PageSnapshot> {
     return page.evaluate(() => {
         const links = Array.from(document.querySelectorAll("a"))
             .map((anchor) => {
@@ -41,7 +41,7 @@ function buildDiscoverySection(label: string, snapshot: PageSnapshot): string {
 }
 
 export async function collectWebsiteDiscoveryPages(
-    context: BrowserContext,
+    context: AutomationBrowserContext,
     website: string,
     sendEvent: (data: unknown) => void,
 ): Promise<{ rawFootprint: string; pages: EmailDiscoveryPage[] }> {
@@ -94,7 +94,7 @@ export async function collectWebsiteDiscoveryPages(
 }
 
 export async function collectSearchDiscoveryPage(
-    context: BrowserContext,
+    context: AutomationBrowserContext,
     query: string,
 ): Promise<{ rawFootprint: string; pages: EmailDiscoveryPage[] }> {
     const searchPage = await context.newPage();

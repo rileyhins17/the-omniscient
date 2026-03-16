@@ -1,4 +1,4 @@
-import { Lead } from "@prisma/client";
+import type { LeadRecord as Lead } from "../prisma";
 import {
     CsvPreset,
     CsvColumnDef,

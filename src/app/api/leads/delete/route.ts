@@ -1,18 +1,37 @@
-import { prisma } from "@/lib/prisma";
 import { NextResponse } from "next/server";
 
-export async function DELETE(req: Request) {
-    try {
-        const { id } = await req.json();
+import { writeAuditEvent } from "@/lib/audit";
+import { getClientIp } from "@/lib/cloudflare";
+import { getPrisma } from "@/lib/prisma";
+import { requireAdminApiSession } from "@/lib/session";
 
-        if (!id || typeof id !== "number") {
-            return NextResponse.json({ error: "Invalid lead ID" }, { status: 400 });
-        }
-
-        await prisma.lead.delete({ where: { id } });
-
-        return NextResponse.json({ success: true });
-    } catch (error) {
-        return NextResponse.json({ error: "Failed to delete lead" }, { status: 500 });
+export async function DELETE(request: Request) {
+  try {
+    const authResult = await requireAdminApiSession(request);
+    if ("response" in authResult) {
+      return authResult.response;
     }
+
+    const { id } = await request.json();
+    const leadId = Number(id);
+
+    if (!Number.isInteger(leadId) || leadId <= 0) {
+      return NextResponse.json({ error: "Invalid lead ID" }, { status: 400 });
+    }
+
+    const prisma = getPrisma();
+    await prisma.lead.delete({ where: { id: leadId } });
+
+    await writeAuditEvent({
+      action: "lead.delete",
+      actorUserId: authResult.session.user.id,
+      ipAddress: getClientIp(request),
+      targetType: "lead",
+      targetId: String(leadId),
+    });
+
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ error: "Failed to delete lead" }, { status: 500 });
+  }
 }

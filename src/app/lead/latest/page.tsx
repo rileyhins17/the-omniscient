@@ -1,18 +1,20 @@
-import { prisma } from "@/lib/prisma";
 import { redirect } from "next/navigation";
 
-/**
- * /lead/latest — Redirects to the most recently created lead's dossier.
- */
+import { getPrisma } from "@/lib/prisma";
+import { requireSession } from "@/lib/session";
+
 export default async function LatestLeadPage() {
-    const lead = await prisma.lead.findFirst({
-        orderBy: { createdAt: "desc" },
-        select: { id: true },
-    });
+  await requireSession();
 
-    if (lead) {
-        redirect(`/lead/${lead.id}`);
-    }
+  const prisma = getPrisma();
+  const lead = await prisma.lead.findFirst({
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
 
-    redirect("/vault");
+  if (lead) {
+    redirect(`/lead/${lead.id}`);
+  }
+
+  redirect("/vault");
 }

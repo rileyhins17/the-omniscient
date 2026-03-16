@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { CommandPalette } from "./command-palette";
 import { ShortcutsModal } from "./shortcuts-modal";
@@ -47,7 +48,7 @@ export function HotkeyProvider({ children }: { children: React.ReactNode }) {
 
             // ⌘1-5 → navigate pages
             if (e.metaKey || e.ctrlKey) {
-                const routes: Record<string, string> = {
+                const routes: Record<string, Route> = {
                     "1": "/dashboard",
                     "2": "/hunt",
                     "3": "/vault",

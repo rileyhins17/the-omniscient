@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from "react";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { COMMANDS, searchCommands, groupByCategory, type Command } from "@/lib/commands";
@@ -38,16 +39,20 @@ export function CommandPalette({ open, onClose, onOpenShortcuts }: CommandPalett
         onClose();
         switch (cmd.action.type) {
             case "navigate":
-                router.push(cmd.action.path);
+                router.push(cmd.action.path as Route);
                 break;
             case "navigate-filter":
-                const params = new URLSearchParams(cmd.action.params);
-                router.push(`${cmd.action.path}?${params.toString()}`);
+                {
+                    const params = new URLSearchParams(cmd.action.params);
+                    router.push(`${cmd.action.path}?${params.toString()}` as Route);
+                }
                 break;
             case "export":
-                const exportParams = new URLSearchParams({ format: cmd.action.format });
-                if (cmd.action.tiers) exportParams.set("tiers", cmd.action.tiers);
-                window.open(`/api/leads/export?${exportParams.toString()}`, "_blank");
+                {
+                    const exportParams = new URLSearchParams({ format: cmd.action.format });
+                    if (cmd.action.tiers) exportParams.set("tier", cmd.action.tiers);
+                    window.open(`/api/leads/export?${exportParams.toString()}`, "_blank");
+                }
                 break;
             case "modal":
                 if (cmd.action.modal === "shortcuts") {

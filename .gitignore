@@ -30,9 +30,16 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 devserver*.log
+dev-server*.log
+preview-worker*.log
+preview-signin*.json
+preview-signin*.headers
+preview*.cookies
 
 # env files (can opt-in for committing if needed)
 .env*
+.dev.vars
+.dev.vars.local
 
 # vercel
 .vercel
@@ -41,7 +48,11 @@ devserver*.log
 *.tsbuildinfo
 next-env.d.ts
 
-/src/generated/prisma
+.open-next
+.wrangler
+dev-server.log
+dev-server.err.log
+/src/generated/
 
 # SQLite DBs
 *.db

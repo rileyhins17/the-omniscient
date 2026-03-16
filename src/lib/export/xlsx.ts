@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import { Lead } from "@prisma/client";
+import type { LeadRecord as Lead } from "../prisma";
 import { buildPainSummary, formatPainReadable, formatPhoneDigits, truncateString } from "./csv";
 
 // Helper for parsing JSON

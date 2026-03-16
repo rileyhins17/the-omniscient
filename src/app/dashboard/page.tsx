@@ -1,5 +1,8 @@
 import DashboardClient from "./DashboardClient"
+import { requireSession } from "@/lib/session";
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+    await requireSession();
+
     return <DashboardClient />
 }

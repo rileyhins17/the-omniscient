@@ -4,17 +4,25 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "build": "next build --webpack",
+    "build:next": "next build --webpack",
+    "build:cloudflare": "opennextjs-cloudflare build",
+    "preview": "npm run build:cloudflare && wrangler dev",
+    "deploy": "npm run build:cloudflare && opennextjs-cloudflare deploy",
+    "lint": "eslint",
+    "postinstall": "patch-package",
+    "db:setup:local": "wrangler d1 migrations apply axiom-ops-omniscient --local",
+    "db:migrate:local": "wrangler d1 migrations apply axiom-ops-omniscient --local",
+    "db:migrate:remote": "wrangler d1 migrations apply axiom-ops-omniscient --remote",
+    "cf:typegen": "wrangler types --env-interface CloudflareEnv ./cloudflare-env.d.ts"
   },
   "dependencies": {
+    "@cloudflare/playwright": "^1.1.2",
     "@google/generative-ai": "^0.24.1",
-    "@prisma/client": "^5.22.0",
     "axios": "^1.13.5",
+    "better-auth": "^1.5.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "csv-writer": "^1.6.0",
     "exceljs": "^4.4.0",
     "lucide-react": "^0.575.0",
     "next": "16.1.6",
@@ -22,20 +30,24 @@
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "tailwind-merge": "^3.5.0",
+    "zod": "^4.3.6",
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@opennextjs/cloudflare": "^1.17.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^17.2.3",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "patch-package": "^8.0.1",
     "playwright": "^1.58.2",
-    "prisma": "^5.22.0",
     "shadcn": "^3.8.5",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.4.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "^4.73.0"
   }
 }
