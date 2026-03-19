@@ -42,6 +42,20 @@ export interface ScrapeJobRecord {
   updatedAt: Date;
 }
 
+export interface ScrapeJobSummary {
+  claimedBy: string | null;
+  createdAt: Date;
+  city: string;
+  finishedAt: Date | null;
+  heartbeatAt: Date | null;
+  id: string;
+  maxDepth: number;
+  niche: string;
+  radius: string;
+  status: ScrapeJobStatus;
+  updatedAt: Date;
+}
+
 export interface WorkerHealthRecord {
   claimedJobId: string | null;
   claimedJobStatus: ScrapeJobStatus | null;
@@ -247,6 +261,44 @@ export async function createScrapeJob(input: CreateScrapeJobInput): Promise<Scra
 export async function getScrapeJob(jobId: string): Promise<ScrapeJobRecord | null> {
   const row = await firstRow<Record<string, unknown>>(`SELECT * FROM "ScrapeJob" WHERE "id" = ? LIMIT 1`, [jobId]);
   return row ? jobFromRow(row) : null;
+}
+
+function summaryFromRow(row: Record<string, unknown>): ScrapeJobSummary {
+  return {
+    claimedBy: row.claimedBy === null || row.claimedBy === undefined ? null : String(row.claimedBy),
+    createdAt: parseDate(row.createdAt) || new Date(),
+    city: String(row.city || ""),
+    finishedAt: parseDate(row.finishedAt),
+    heartbeatAt: parseDate(row.heartbeatAt),
+    id: String(row.id || ""),
+    maxDepth: Number(row.maxDepth || 0),
+    niche: String(row.niche || ""),
+    radius: String(row.radius || ""),
+    status: String(row.status || "pending") as ScrapeJobStatus,
+    updatedAt: parseDate(row.updatedAt) || new Date(),
+  };
+}
+
+export async function listScrapeJobs(limit = 12): Promise<ScrapeJobSummary[]> {
+  const rows = await allRows<Record<string, unknown>>(
+    `SELECT * FROM "ScrapeJob"
+     ORDER BY
+       CASE "status"
+         WHEN 'running' THEN 0
+         WHEN 'claimed' THEN 1
+         WHEN 'pending' THEN 2
+         WHEN 'failed' THEN 3
+         WHEN 'canceled' THEN 4
+         WHEN 'completed' THEN 5
+         ELSE 6
+       END,
+       COALESCE("heartbeatAt", "updatedAt") DESC,
+       "createdAt" DESC
+     LIMIT ?`,
+    [limit],
+  );
+
+  return rows.map(summaryFromRow);
 }
 
 export async function countActiveScrapeJobs(): Promise<number> {

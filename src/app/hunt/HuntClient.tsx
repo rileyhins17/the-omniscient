@@ -15,6 +15,7 @@ import {
 import { OpsHud } from "@/components/hunt/ops-hud"
 import { QueueSummary, type QueueItem } from "@/components/hunt/queue-summary"
 import { IssuesPanel } from "@/components/hunt/issues-panel"
+import { RemoteJobsCard } from "@/components/hunt/remote-jobs-card"
 import { TerminalPanel, type LogEntry } from "@/components/hunt/terminal-panel"
 import { WorkerHealthCard, type WorkerHealth } from "@/components/hunt/worker-health-card"
 import {
@@ -62,6 +63,7 @@ function HuntInner() {
     const [maxDepth, setMaxDepth] = useState("5")
     const [cancelConfirm, setCancelConfirm] = useState(false)
     const [workerHealth, setWorkerHealth] = useState<WorkerHealth | null>(null)
+    const [remoteJobsRefreshKey, setRemoteJobsRefreshKey] = useState(0)
 
     // ═══ GLOBAL STORE STATE ═══
     const store = useHuntStore()
@@ -72,6 +74,7 @@ function HuntInner() {
         store.addToQueue(niche, city, radius, maxDepth)
         setNiche("")
         setCity("")
+        setRemoteJobsRefreshKey((value) => value + 1)
     }
 
     const applyScanPreset = useCallback((preset: typeof SCAN_PRESETS[number]) => {
@@ -109,6 +112,7 @@ function HuntInner() {
         }));
 
         toast(mode === "retry" ? "Job retried" : "Job requeued", { type: "info" });
+        setRemoteJobsRefreshKey((value) => value + 1);
     }, [toast, store.queue]);
 
     const retryJob = useCallback((jobContext: string) => {
@@ -223,6 +227,7 @@ function HuntInner() {
             </div>
 
             <WorkerHealthCard onHealthChange={setWorkerHealth} />
+            <RemoteJobsCard key={remoteJobsRefreshKey} />
 
             {/* OPS HUD (always visible when queue exists) */}
             {(store.loading || store.session.status === "completed" || store.session.status === "canceled" || store.queue.length > 0) && (
