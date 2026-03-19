@@ -28,6 +28,24 @@ import { useHuntStore } from "@/lib/hunt/hunt-store"
 const NICHE_PRESETS = ["Roofers", "Concrete", "Med-Spas", "Landscaping", "Plumbing", "HVAC", "Electricians", "Auto Detailing", "Commercial Cleaning", "Custom Cabinetry"]
 const CITY_PRESETS = ["Kitchener", "Waterloo", "Cambridge", "Guelph", "Hamilton", "London"]
 
+function getJobStatusBadgeClass(status: QueueItem["status"]) {
+    switch (status) {
+        case "completed":
+            return "border-emerald-500/20 bg-emerald-500/10 text-emerald-300";
+        case "claimed":
+            return "border-cyan-500/20 bg-cyan-500/10 text-cyan-300";
+        case "running":
+            return "border-emerald-500/20 bg-emerald-500/10 text-emerald-300";
+        case "failed":
+            return "border-red-500/20 bg-red-500/10 text-red-300";
+        case "canceled":
+            return "border-zinc-500/20 bg-zinc-500/10 text-zinc-300";
+        case "pending":
+        default:
+            return "border-amber-500/20 bg-amber-500/10 text-amber-300";
+    }
+}
+
 function HuntInner() {
     const { toast } = useToast()
 
@@ -104,8 +122,6 @@ function HuntInner() {
 
     // ═══ DERIVED STATE ═══
     const pendingCount = store.queue.filter(q => q.status === "pending").length
-    const doneCount = store.queue.filter(q => q.status === "done").length
-    const failedCount = store.queue.filter(q => q.status === "failed").length
 
     // Compute avg job duration from done jobs roughly
     const avgJobDuration = 35; // placeholder or computed from logs
@@ -284,11 +300,25 @@ function HuntInner() {
                                                 R:{item.radius}km • D:{item.maxDepth}
                                                 {item.stats && ` • ${item.stats.leadsFound} leads, ${item.stats.withEmail} emails`}
                                             </div>
+                                            <div className="mt-1 flex items-center gap-2">
+                                                <Badge
+                                                    variant="outline"
+                                                    className={`h-5 px-2 text-[9px] font-mono uppercase tracking-wider ${getJobStatusBadgeClass(item.status)}`}
+                                                >
+                                                    {item.status}
+                                                </Badge>
+                                                {item.jobId && (
+                                                    <span className="text-[9px] font-mono text-zinc-600">
+                                                        job #{item.jobId.slice(0, 8)}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                         <div className="flex items-center gap-1.5 shrink-0">
                                             {item.status === "pending" && <Clock className="w-3.5 h-3.5 text-amber-400" />}
+                                            {item.status === "claimed" && <Radar className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />}
                                             {item.status === "running" && <Radar className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />}
-                                            {item.status === "done" && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                                            {item.status === "completed" && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
                                             {item.status === "failed" && <XCircle className="w-3.5 h-3.5 text-red-400" />}
                                             {item.status === "canceled" && <XCircle className="w-3.5 h-3.5 text-zinc-500" />}
                                             {item.status === "failed" && (

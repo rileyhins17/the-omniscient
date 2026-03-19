@@ -1,0 +1,68 @@
+import { NextResponse } from "next/server";
+
+import { isValidJobId, normalizeAgentName, validateAgentLeadPayload } from "@/lib/agent-protocol";
+import { appendScrapeJobEvent } from "@/lib/scrape-jobs";
+import { requireAgentAuth } from "@/lib/agent-auth";
+import { getPrisma } from "@/lib/prisma";
+import { getScrapeJob } from "@/lib/scrape-jobs";
+
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  const authResult = await requireAgentAuth(request);
+  if ("response" in authResult) {
+    return authResult.response;
+  }
+
+  const { id: jobId } = await context.params;
+  if (!isValidJobId(jobId)) {
+    return NextResponse.json({ error: "Invalid job id" }, { status: 400 });
+  }
+
+  const currentJob = await getScrapeJob(jobId);
+  if (!currentJob) {
+    return NextResponse.json({ error: "Job not found" }, { status: 404 });
+  }
+
+  if (currentJob.claimedBy !== authResult.agentName) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  if (currentJob.status === "completed" || currentJob.status === "failed" || currentJob.status === "canceled") {
+    return NextResponse.json({ error: "Job already finished" }, { status: 409 });
+  }
+
+  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const bodyAgentName = body.agentName ? normalizeAgentName(body.agentName) : null;
+  if (body.agentName && !bodyAgentName) {
+    return NextResponse.json({ error: "Invalid agent name" }, { status: 400 });
+  }
+
+  if (bodyAgentName && bodyAgentName !== authResult.agentName) {
+    return NextResponse.json({ error: "Agent identity mismatch" }, { status: 400 });
+  }
+
+  const lead = body.lead;
+  const validation = validateAgentLeadPayload(lead);
+
+  if (!validation.success) {
+    return NextResponse.json({ error: validation.error }, { status: 400 });
+  }
+
+  const prisma = getPrisma();
+  const createdLead = await prisma.lead.create({
+    data: {
+      ...validation.lead,
+      isArchived: validation.lead.isArchived ? true : false,
+    },
+  });
+
+  await appendScrapeJobEvent(jobId, "result", {
+    jobId,
+    jobStatus: "running",
+    leadId: createdLead.id,
+    businessName: createdLead.businessName,
+    city: createdLead.city,
+    message: `[LEAD] Saved ${createdLead.businessName} — ${createdLead.city}`,
+  });
+
+  return NextResponse.json({ ok: true, leadId: createdLead.id });
+}

@@ -1,5 +1,3 @@
-import "server-only";
-
 import type { BrowserEndpoint } from "@cloudflare/playwright";
 
 export interface D1PreparedStatementLike {

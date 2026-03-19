@@ -1,5 +1,3 @@
-import "server-only";
-
 import { getDatabase as getDbHandle } from "@/lib/cloudflare";
 import type { D1DatabaseLike } from "@/lib/cloudflare";
 

@@ -1,5 +1,3 @@
-import "server-only";
-
 import { z } from "zod";
 
 import { getCloudflareBindings } from "@/lib/cloudflare";
@@ -8,6 +6,7 @@ const envSchema = z.object({
   APP_BASE_URL: z.string().url().default("http://localhost:3000"),
   AUTH_ALLOWED_EMAILS: z.string().default(""),
   AUTH_ADMIN_EMAILS: z.string().default(""),
+  AGENT_SHARED_SECRET: z.string().optional(),
   BETTER_AUTH_SECRET: z.string().min(32, "BETTER_AUTH_SECRET must be at least 32 characters long"),
   GEMINI_API_KEY: z.string().optional(),
   RATE_LIMIT_MAX_AUTH: z.coerce.number().int().positive().default(10),
@@ -30,6 +29,7 @@ export function getServerEnv(): AppEnv {
     APP_BASE_URL: bindings?.APP_BASE_URL ?? process.env.APP_BASE_URL,
     AUTH_ALLOWED_EMAILS: bindings?.AUTH_ALLOWED_EMAILS ?? process.env.AUTH_ALLOWED_EMAILS,
     AUTH_ADMIN_EMAILS: bindings?.AUTH_ADMIN_EMAILS ?? process.env.AUTH_ADMIN_EMAILS,
+    AGENT_SHARED_SECRET: bindings?.AGENT_SHARED_SECRET ?? process.env.AGENT_SHARED_SECRET,
     BETTER_AUTH_SECRET: bindings?.BETTER_AUTH_SECRET ?? process.env.BETTER_AUTH_SECRET,
     GEMINI_API_KEY: bindings?.GEMINI_API_KEY ?? process.env.GEMINI_API_KEY,
     RATE_LIMIT_MAX_AUTH: bindings?.RATE_LIMIT_MAX_AUTH ?? process.env.RATE_LIMIT_MAX_AUTH,

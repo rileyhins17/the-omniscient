@@ -1,5 +1,3 @@
-import "server-only";
-
 import { getCloudflareBindings } from "@/lib/cloudflare";
 
 export interface AutomationLocator {
