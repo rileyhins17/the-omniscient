@@ -19,9 +19,9 @@
     }
   ],
   "vars": {
-    "APP_BASE_URL": "http://localhost:3000",
-    "AUTH_ALLOWED_EMAILS": "aidan@getaxiom.ca,riley@getaxiom.ca",
-    "AUTH_ADMIN_EMAILS": "aidan@getaxiom.ca,riley@getaxiom.ca",
+    "APP_BASE_URL": "https://<STAGING_DOMAIN>",
+    "AUTH_ALLOWED_EMAILS": "<ALLOWED_EMAILS>",
+    "AUTH_ADMIN_EMAILS": "<ADMIN_EMAILS>",
     "RATE_LIMIT_WINDOW_SECONDS": "60",
     "RATE_LIMIT_MAX_AUTH": "50",
     "RATE_LIMIT_MAX_SCRAPE": "20",
