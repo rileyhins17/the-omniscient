@@ -6,6 +6,7 @@ const envSchema = z.object({
   APP_BASE_URL: z.string().url().default("http://localhost:3000"),
   AUTH_ALLOWED_EMAILS: z.string().default(""),
   AUTH_ADMIN_EMAILS: z.string().default(""),
+  AUTH_ALLOWED_ORIGINS: z.string().default(""),
   AGENT_SHARED_SECRET: z.string().optional(),
   BETTER_AUTH_SECRET: z.string().min(32, "BETTER_AUTH_SECRET must be at least 32 characters long"),
   GEMINI_API_KEY: z.string().optional(),
@@ -29,6 +30,7 @@ export function getServerEnv(): AppEnv {
     APP_BASE_URL: bindings?.APP_BASE_URL ?? process.env.APP_BASE_URL,
     AUTH_ALLOWED_EMAILS: bindings?.AUTH_ALLOWED_EMAILS ?? process.env.AUTH_ALLOWED_EMAILS,
     AUTH_ADMIN_EMAILS: bindings?.AUTH_ADMIN_EMAILS ?? process.env.AUTH_ADMIN_EMAILS,
+    AUTH_ALLOWED_ORIGINS: bindings?.AUTH_ALLOWED_ORIGINS ?? process.env.AUTH_ALLOWED_ORIGINS,
     AGENT_SHARED_SECRET: bindings?.AGENT_SHARED_SECRET ?? process.env.AGENT_SHARED_SECRET,
     BETTER_AUTH_SECRET: bindings?.BETTER_AUTH_SECRET ?? process.env.BETTER_AUTH_SECRET,
     GEMINI_API_KEY: bindings?.GEMINI_API_KEY ?? process.env.GEMINI_API_KEY,
@@ -47,6 +49,13 @@ function splitCsv(value: string): string[] {
   return value
     .split(",")
     .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function splitOrigins(value: string): string[] {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
     .filter(Boolean);
 }
 
@@ -69,6 +78,14 @@ export function getTrustedOrigins(): string[] {
   try {
     const appUrl = new URL(env.APP_BASE_URL);
     origins.add(appUrl.origin);
+
+    for (const origin of splitOrigins(env.AUTH_ALLOWED_ORIGINS)) {
+      try {
+        origins.add(new URL(origin).origin);
+      } catch {
+        // Ignore malformed trusted origins and continue with the rest.
+      }
+    }
 
     const isLoopback = appUrl.hostname === "localhost" || appUrl.hostname === "127.0.0.1";
 

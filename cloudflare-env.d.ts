@@ -2,6 +2,7 @@ interface CloudflareEnv {
   APP_BASE_URL: string;
   AUTH_ALLOWED_EMAILS: string;
   AUTH_ADMIN_EMAILS: string;
+  AUTH_ALLOWED_ORIGINS?: string;
   AGENT_SHARED_SECRET?: string;
   BETTER_AUTH_SECRET: string;
   GEMINI_API_KEY?: string;

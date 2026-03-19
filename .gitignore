@@ -38,7 +38,9 @@ preview*.cookies
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.worker.example
 !.env.pi.example
+.env.worker
 .dev.vars
 .dev.vars.local
 
@@ -51,8 +53,10 @@ next-env.d.ts
 
 .open-next
 .wrangler
+.worker.pid
 dev-server.log
 dev-server.err.log
+/worker*.log
 /src/generated/
 
 # SQLite DBs

@@ -16,6 +16,7 @@ import { OpsHud } from "@/components/hunt/ops-hud"
 import { QueueSummary, type QueueItem } from "@/components/hunt/queue-summary"
 import { IssuesPanel } from "@/components/hunt/issues-panel"
 import { TerminalPanel, type LogEntry } from "@/components/hunt/terminal-panel"
+import { WorkerHealthCard, type WorkerHealth } from "@/components/hunt/worker-health-card"
 import {
     parseSSELine,
 } from "@/lib/hunt/sse-parser"
@@ -55,6 +56,7 @@ function HuntInner() {
     const [radius, setRadius] = useState("10")
     const [maxDepth, setMaxDepth] = useState("5")
     const [cancelConfirm, setCancelConfirm] = useState(false)
+    const [workerHealth, setWorkerHealth] = useState<WorkerHealth | null>(null)
 
     // ═══ GLOBAL STORE STATE ═══
     const store = useHuntStore()
@@ -67,13 +69,72 @@ function HuntInner() {
         setCity("")
     }
 
-    const retryJob = useCallback((jobContext: string) => {
-        const [niche, city] = jobContext.split(" in ")
-        if (niche && city) {
-            store.addToQueue(niche.trim(), city.trim(), "10", "5")
-            toast(`Re-queued: ${niche} in ${city}`, { type: "info" })
+    const retryQueuedJob = useCallback(async (jobId: string, mode: "retry" | "requeue" = "retry") => {
+        const target = store.queue.find((item) => item.jobId === jobId);
+        if (!target) {
+            toast("Job not found in queue", { type: "error" });
+            return;
         }
-    }, [toast, store])
+
+        const response = await fetch(`/api/scrape/jobs/${jobId}/retry`, {
+            method: "POST",
+        });
+        const data = (await response.json().catch(() => ({}))) as { error?: string; job?: { id?: string; status?: string } };
+
+        if (!response.ok) {
+            throw new Error(data.error || "Failed to retry job.");
+        }
+
+        useHuntStore.setState((prev) => ({
+            queue: prev.queue.map((item) =>
+                item.jobId === jobId
+                    ? {
+                          ...item,
+                          jobId: data.job?.id || jobId,
+                          status: "pending",
+                          stats: undefined,
+                      }
+                    : item,
+            ),
+        }));
+
+        toast(mode === "retry" ? "Job retried" : "Job requeued", { type: "info" });
+    }, [toast, store.queue]);
+
+    const retryJob = useCallback((jobContext: string) => {
+        const [niche, city] = jobContext.split(" in ");
+        if (!niche || !city) {
+            return;
+        }
+
+        const matches = store.queue.filter((item) => {
+            const contextMatches = item.niche.trim() === niche.trim() && item.city.trim() === city.trim();
+            if (!contextMatches || !item.jobId) return false;
+            if (item.status === "failed" || item.status === "canceled") return true;
+            if ((item.status === "claimed" || item.status === "running") && workerHealth?.claimedJobId === item.jobId && !workerHealth.online) {
+                return true;
+            }
+            return false;
+        });
+
+        const target = matches[matches.length - 1];
+        if (!target?.jobId) {
+            toast(`No retryable job found for ${niche.trim()} in ${city.trim()}`, { type: "error" });
+            return;
+        }
+
+        void retryQueuedJob(target.jobId, target.status === "failed" ? "retry" : "requeue").catch((error) => {
+            toast(error instanceof Error ? error.message : "Failed to retry job", { type: "error" });
+        });
+    }, [retryQueuedJob, store.queue, toast, workerHealth]);
+
+    const requeueJob = useCallback((job: QueueItem) => {
+        if (!job.jobId) return;
+
+        void retryQueuedJob(job.jobId, job.status === "failed" ? "retry" : "requeue").catch((error) => {
+            toast(error instanceof Error ? error.message : "Failed to requeue job", { type: "error" });
+        });
+    }, [retryQueuedJob, toast]);
 
     const dismissError = useCallback((errorId: string) => {
         useHuntStore.setState(prev => ({
@@ -147,6 +208,8 @@ function HuntInner() {
                     </div>
                 </div>
             </div>
+
+            <WorkerHealthCard onHealthChange={setWorkerHealth} />
 
             {/* OPS HUD (always visible when queue exists) */}
             {(store.loading || store.session.status === "completed" || store.session.status === "canceled" || store.queue.length > 0) && (
@@ -321,13 +384,34 @@ function HuntInner() {
                                             {item.status === "completed" && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
                                             {item.status === "failed" && <XCircle className="w-3.5 h-3.5 text-red-400" />}
                                             {item.status === "canceled" && <XCircle className="w-3.5 h-3.5 text-zinc-500" />}
-                                            {item.status === "failed" && (
+                                            {item.status === "failed" && item.jobId && (
                                                 <button
-                                                    onClick={() => retryJob(`${item.niche} in ${item.city}`)}
-                                                    className="text-zinc-600 hover:text-amber-400 transition-colors"
-                                                    title="Retry"
+                                                    onClick={() => requeueJob(item)}
+                                                    className="flex items-center gap-1 px-2 py-1 rounded-md border border-amber-500/20 bg-amber-500/5 text-[9px] font-mono uppercase tracking-wider text-amber-300 hover:bg-amber-500/10 transition-colors"
+                                                    title="Retry failed job"
                                                 >
-                                                    <RotateCcw className="w-3.5 h-3.5" />
+                                                    <RotateCcw className="w-3 h-3" />
+                                                    Retry
+                                                </button>
+                                            )}
+                                            {item.status === "canceled" && item.jobId && (
+                                                <button
+                                                    onClick={() => requeueJob(item)}
+                                                    className="flex items-center gap-1 px-2 py-1 rounded-md border border-cyan-500/20 bg-cyan-500/5 text-[9px] font-mono uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/10 transition-colors"
+                                                    title="Requeue canceled job"
+                                                >
+                                                    <RotateCcw className="w-3 h-3" />
+                                                    Requeue
+                                                </button>
+                                            )}
+                                            {(item.status === "claimed" || item.status === "running") && item.jobId && workerHealth?.claimedJobId === item.jobId && !workerHealth.online && (
+                                                <button
+                                                    onClick={() => requeueJob(item)}
+                                                    className="flex items-center gap-1 px-2 py-1 rounded-md border border-rose-500/20 bg-rose-500/5 text-[9px] font-mono uppercase tracking-wider text-rose-300 hover:bg-rose-500/10 transition-colors"
+                                                    title="Requeue stale job"
+                                                >
+                                                    <RotateCcw className="w-3 h-3" />
+                                                    Requeue stale
                                                 </button>
                                             )}
                                             {item.status === "pending" && !store.loading && (

@@ -22,6 +22,7 @@
     "APP_BASE_URL": "https://operations.getaxiom.ca/",
     "AUTH_ALLOWED_EMAILS": "aidan@getaxiom.ca,riley@getaxiom.ca",
     "AUTH_ADMIN_EMAILS": "aidan@getaxiom.ca,riley@getaxiom.ca",
+    "AUTH_ALLOWED_ORIGINS": "https://axiom-ops-omniscient.aidan-magee2.workers.dev,https://operations.getaxiom.ca",
     "RATE_LIMIT_WINDOW_SECONDS": "60",
     "RATE_LIMIT_MAX_AUTH": "50",
     "RATE_LIMIT_MAX_SCRAPE": "20",

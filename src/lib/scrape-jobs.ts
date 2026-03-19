@@ -42,6 +42,15 @@ export interface ScrapeJobRecord {
   updatedAt: Date;
 }
 
+export interface WorkerHealthRecord {
+  claimedJobId: string | null;
+  claimedJobStatus: ScrapeJobStatus | null;
+  heartbeatAgeSeconds: number | null;
+  lastHeartbeatAt: Date | null;
+  online: boolean;
+  workerName: string | null;
+}
+
 export interface ScrapeJobEventRecord {
   createdAt: Date;
   eventType: string;
@@ -428,6 +437,25 @@ export async function cancelScrapeJob(
   return getScrapeJob(jobId);
 }
 
+export async function resetScrapeJobForRetry(jobId: string): Promise<ScrapeJobRecord | null> {
+  const now = new Date();
+  await runStatement(
+    `UPDATE "ScrapeJob"
+     SET "status" = 'pending',
+         "claimedBy" = NULL,
+         "claimedAt" = NULL,
+         "heartbeatAt" = NULL,
+         "errorMessage" = NULL,
+         "statsJson" = NULL,
+         "finishedAt" = NULL,
+         "updatedAt" = ?
+     WHERE "id" = ?`,
+    [now, jobId],
+  );
+
+  return getScrapeJob(jobId);
+}
+
 export async function listClaimableScrapeJobs(): Promise<ScrapeJobRecord[]> {
   const rows = await allRows<Record<string, unknown>>(
     `SELECT * FROM "ScrapeJob"
@@ -436,4 +464,49 @@ export async function listClaimableScrapeJobs(): Promise<ScrapeJobRecord[]> {
   );
 
   return rows.map(jobFromRow);
+}
+
+export async function getWorkerHealth(staleAfterSeconds = 60): Promise<WorkerHealthRecord> {
+  const activeRow = await firstRow<Record<string, unknown>>(
+    `SELECT * FROM "ScrapeJob"
+     WHERE "status" IN ('claimed', 'running')
+     ORDER BY COALESCE("heartbeatAt", "updatedAt") DESC, "createdAt" DESC
+     LIMIT 1`,
+  );
+
+  const fallbackRow = activeRow
+    ? activeRow
+    : await firstRow<Record<string, unknown>>(
+        `SELECT * FROM "ScrapeJob"
+         WHERE "claimedBy" IS NOT NULL
+         ORDER BY COALESCE("heartbeatAt", "updatedAt") DESC, "createdAt" DESC
+         LIMIT 1`,
+      );
+
+  if (!fallbackRow) {
+    return {
+      claimedJobId: null,
+      claimedJobStatus: null,
+      heartbeatAgeSeconds: null,
+      lastHeartbeatAt: null,
+      online: false,
+      workerName: null,
+    };
+  }
+
+  const lastHeartbeatAt = parseDate(fallbackRow.heartbeatAt) ?? parseDate(fallbackRow.updatedAt);
+  const heartbeatAgeSeconds = lastHeartbeatAt
+    ? Math.max(0, Math.floor((Date.now() - lastHeartbeatAt.getTime()) / 1000))
+    : null;
+  const claimedJobStatus = String(fallbackRow.status || "pending") as ScrapeJobStatus;
+  const online = Boolean(lastHeartbeatAt && heartbeatAgeSeconds !== null && heartbeatAgeSeconds <= staleAfterSeconds);
+
+  return {
+    claimedJobId: String(fallbackRow.id || "") || null,
+    claimedJobStatus,
+    heartbeatAgeSeconds,
+    lastHeartbeatAt,
+    online,
+    workerName: fallbackRow.claimedBy === null || fallbackRow.claimedBy === undefined ? null : String(fallbackRow.claimedBy),
+  };
 }
