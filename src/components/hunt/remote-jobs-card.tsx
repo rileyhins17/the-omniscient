@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Radar, Server, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Ban, Radar, Server, Sparkles } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -59,51 +59,75 @@ export function RemoteJobsCard() {
   const [jobs, setJobs] = useState<RemoteJobSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [busyJobId, setBusyJobId] = useState<string | null>(null);
+
+  const loadJobs = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const response = await fetch("/api/scrape/jobs?limit=8", {
+        cache: "no-store",
+        signal,
+      });
+      const data = (await response.json().catch(() => null)) as { jobs?: RemoteJobSummary[] } | null;
+
+      if (!response.ok || !Array.isArray(data?.jobs)) {
+        throw new Error("Unable to load remote jobs.");
+      }
+
+      setJobs(data.jobs);
+      setError(null);
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") {
+        setError("Remote jobs unavailable");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const cancelJob = useCallback(async (jobId: string) => {
+    setBusyJobId(jobId);
+    try {
+      const response = await fetch(`/api/scrape/jobs/${jobId}/cancel`, {
+        method: "POST",
+      });
+
+      const data = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) {
+        throw new Error(data?.error || "Unable to cancel job.");
+      }
+
+      setJobs((prev) =>
+        prev.map((job) =>
+          job.id === jobId
+            ? {
+                ...job,
+                status: "canceled",
+                finishedAt: new Date().toISOString(),
+                heartbeatAt: new Date().toISOString(),
+              }
+            : job,
+        ),
+      );
+      await loadJobs();
+    } finally {
+      setBusyJobId(null);
+    }
+  }, [loadJobs]);
 
   useEffect(() => {
-    let alive = true;
     const controller = new AbortController();
     let timer: ReturnType<typeof setInterval> | null = null;
 
-    const load = async () => {
-      try {
-        const response = await fetch("/api/scrape/jobs?limit=8", {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        const data = (await response.json().catch(() => null)) as { jobs?: RemoteJobSummary[] } | null;
-
-        if (!response.ok || !Array.isArray(data?.jobs)) {
-          throw new Error("Unable to load remote jobs.");
-        }
-
-        if (!alive) return;
-
-        setJobs(data.jobs);
-        setError(null);
-      } catch (err) {
-        if (!alive) return;
-        if ((err as Error).name !== "AbortError") {
-          setError("Remote jobs unavailable");
-        }
-      } finally {
-        if (alive) {
-          setLoading(false);
-        }
-      }
-    };
-
-    void load();
+    void loadJobs(controller.signal);
     timer = setInterval(() => {
-      void load();
+      void loadJobs(controller.signal);
     }, 15000);
 
     return () => {
-      alive = false;
       controller.abort();
       if (timer) clearInterval(timer);
     };
-  }, []);
+  }, [loadJobs]);
 
   const activeJobs = useMemo(() => jobs.filter((job) => isActive(job.status)), [jobs]);
   const visibleJobs = activeJobs.length > 0 ? activeJobs : jobs.slice(0, 4);
@@ -167,6 +191,19 @@ export function RemoteJobsCard() {
                     {job.status}
                   </div>
                 </div>
+                {(job.status === "pending" || job.status === "claimed" || job.status === "running") && (
+                  <div className="mt-2 flex items-center justify-end">
+                    <button
+                      type="button"
+                      onClick={() => cancelJob(job.id)}
+                      disabled={busyJobId === job.id}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-rose-500/20 bg-rose-500/5 px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-rose-300 hover:bg-rose-500/10 transition-colors disabled:opacity-50"
+                    >
+                      <Ban className="w-3.5 h-3.5" />
+                      {busyJobId === job.id ? "Canceling" : "Cancel"}
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
