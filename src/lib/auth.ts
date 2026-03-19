@@ -17,7 +17,15 @@ function isAllowedEmail(email: string) {
   return allowed.includes(email.trim().toLowerCase());
 }
 
+const globalForAuth = globalThis as typeof globalThis & {
+  axiomAuth?: any;
+};
+
 export function getAuth() {
+  if (globalForAuth.axiomAuth) {
+    return globalForAuth.axiomAuth;
+  }
+
   const env = getServerEnv();
   const bindings = getCloudflareBindings();
 
@@ -36,7 +44,7 @@ export function getAuth() {
     databaseConfig = { database: localDb };
   }
 
-  return betterAuth({
+  const auth = betterAuth({
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.APP_BASE_URL,
     ...databaseConfig,
@@ -49,6 +57,12 @@ export function getAuth() {
     session: {
       expiresIn: 60 * 60 * 24 * 7,
       updateAge: 60 * 60 * 6,
+      cookieCache: {
+        enabled: true,
+        maxAge: 300,
+        refreshCache: false,
+        strategy: "compact",
+      },
     },
     hooks: {
       before: createAuthMiddleware(async (ctx) => {
@@ -123,4 +137,7 @@ export function getAuth() {
       }),
     ],
   });
+
+  globalForAuth.axiomAuth = auth;
+  return auth;
 }
