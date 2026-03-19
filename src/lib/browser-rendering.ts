@@ -26,6 +26,8 @@ export interface AutomationBrowser {
   newContext(options?: { locale?: string }): Promise<AutomationBrowserContext>;
 }
 
+type CloudflareBrowserRegistry = Record<string, unknown>;
+
 async function loadCloudflarePlaywright() {
   return import("@cloudflare/playwright");
 }
@@ -58,6 +60,12 @@ export async function launchAutomationBrowser(): Promise<AutomationBrowser> {
   // Use Cloudflare Browser Rendering if available (CF Workers/Pages).
   if (bindings?.BROWSER) {
     try {
+      const globalScope = globalThis as typeof globalThis & {
+        __cloudflareBrowserBindings?: CloudflareBrowserRegistry;
+      };
+      globalScope.__cloudflareBrowserBindings ??= {};
+      globalScope.__cloudflareBrowserBindings.BROWSER = bindings.BROWSER;
+
       const { launch } = await loadCloudflarePlaywright();
       return launch(bindings.BROWSER);
     } catch {
