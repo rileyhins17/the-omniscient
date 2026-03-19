@@ -56,7 +56,10 @@ dev-server.err.log
 /src/generated/
 
 # SQLite DBs
+data/
 *.db
+*.db-shm
+*.db-wal
 *.db-journal
 
 # Scratch Test Files
