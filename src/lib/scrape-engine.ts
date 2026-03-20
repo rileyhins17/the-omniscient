@@ -6,7 +6,7 @@ import {
   type WebsiteAssessment,
 } from "@/lib/axiom-scoring";
 import { validateContact } from "@/lib/contact-validation";
-import { generateDedupeKey } from "@/lib/dedupe";
+import { extractDomain, generateDedupeKey } from "@/lib/dedupe";
 import { checkDisqualifiers } from "@/lib/disqualifiers";
 import { launchAutomationBrowser, type AutomationBrowser, type AutomationBrowserContext } from "@/lib/browser-rendering";
 import { generatePersonalization } from "@/lib/lead-personalization";
@@ -59,6 +59,116 @@ export interface ExecuteScrapeJobResult {
 
 function sanitizeAiJsonResponse(text: string): string {
   return text.trim().replace(/```json/g, "").replace(/```/g, "").trim();
+}
+
+function normalizeWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizeWebsiteUrl(value: string): string {
+  const clean = normalizeWhitespace(value);
+  if (!clean) return "";
+  try {
+    const url = new URL(clean.startsWith("http") ? clean : `https://${clean}`);
+    return url.toString();
+  } catch {
+    return clean;
+  }
+}
+
+function normalizeCategory(category: string, niche: string): string {
+  const clean = normalizeWhitespace(category);
+  if (!clean) return "";
+
+  const comparable = clean.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const nicheComparable = niche.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (!comparable || comparable === nicheComparable) {
+    return "";
+  }
+
+  return clean;
+}
+
+function normalizePhoneText(phone: string): string {
+  return normalizeWhitespace(phone).replace(/[.,;]+$/g, "");
+}
+
+function parseMapsRatingAndReviews(source: string): { rating: number; reviewCount: number } {
+  const text = normalizeWhitespace(source);
+  if (!text) {
+    return { rating: 0, reviewCount: 0 };
+  }
+
+  const candidatePatterns = [
+    /([\d.]+)\s*(?:stars?|rating)[^\d]{0,40}([\d,]+)\s*(?:reviews?|ratings?)/i,
+    /([\d.]+)\s*[★☆]\s*([\d,]+)/i,
+    /rating[:\s]+([\d.]+)[^\d]{0,40}reviews?[:\s]+([\d,]+)/i,
+    /([\d.]+)\s*\(\s*([\d,]+)\s*\)\s*(?:reviews?|ratings?)?/i,
+  ];
+
+  for (const pattern of candidatePatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const rating = Number.parseFloat(match[1]);
+      const reviewCount = Number.parseInt(match[2].replace(/,/g, ""), 10);
+      if (Number.isFinite(rating) && Number.isFinite(reviewCount)) {
+        return { rating, reviewCount };
+      }
+    }
+  }
+
+  const numbers = Array.from(text.matchAll(/\d[\d,]*(?:\.\d+)?/g)).map((match) => Number.parseFloat(match[0].replace(/,/g, "")));
+  if (numbers.length === 0) {
+    return { rating: 0, reviewCount: 0 };
+  }
+
+  const rating = numbers.find((value) => value > 0 && value <= 5) || 0;
+  const reviewCount = numbers.find((value) => value >= 5 && value !== rating) || 0;
+
+  return {
+    rating,
+    reviewCount,
+  };
+}
+
+function buildFallbackTacticalNote(input: {
+  businessName: string;
+  category: string;
+  rating: number;
+  reviewCount: number;
+  socialLink: string;
+  websiteStatus: string;
+}) {
+  if (input.websiteStatus === "MISSING") {
+    return `No website is visible for ${input.businessName}; outreach should focus on web presence and lead capture.`;
+  }
+
+  if (input.socialLink) {
+    return `Website scan returned limited signal; ${input.businessName} appears to rely on its web and social presence for discovery.`;
+  }
+
+  if (input.reviewCount > 0 || input.rating > 0) {
+    return `${input.businessName} has visible reputation signals, but the website scan did not surface a reliable AI note.`;
+  }
+
+  if (input.category) {
+    return `Website scan incomplete for ${input.businessName}; position outreach around ${input.category.toLowerCase()} conversion and trust gaps.`;
+  }
+
+  return `Website scan incomplete for ${input.businessName}; position outreach around conversion and trust gaps.`;
+}
+
+function sanitizeTacticalNote(note: string | null | undefined, fallback: string): string {
+  const clean = normalizeWhitespace(note || "");
+  if (!clean) {
+    return fallback;
+  }
+
+  if (/^(ai error|error:|fetch failed|503 service unavailable|502 bad gateway|timeout)/i.test(clean)) {
+    return fallback;
+  }
+
+  return clean;
 }
 
 function createGeminiModel(apiKey?: string) {
@@ -281,7 +391,11 @@ async function collectTargets(
               const categoryButton = document.querySelector('button[jsaction="pane.rating.category"]');
               const category = (categoryButton as HTMLElement | null)?.innerText || "";
               const ratingDiv = document.querySelector('div[jsaction="pane.rating.moreReviews"]');
-              const ratingText = ratingDiv?.getAttribute("aria-label") || "";
+              const ratingText = [
+                ratingDiv?.getAttribute("aria-label"),
+                ratingDiv?.textContent,
+                (ratingDiv as HTMLElement | null)?.innerText,
+              ].filter(Boolean).join(" | ");
 
               return { address, category, phone, ratingText, title, website };
             });
@@ -298,24 +412,16 @@ async function collectTargets(
       for (const result of chunkResults) {
         if (!result || !result.title) continue;
 
-        let rating = 0;
-        let reviewCount = 0;
-        if (result.ratingText) {
-          const match = result.ratingText.match(/([\d.]+)\s*stars?\s*([\d,]+)/i);
-          if (match) {
-            rating = parseFloat(match[1]);
-            reviewCount = parseInt(match[2].replace(/,/g, ""), 10);
-          }
-        }
+        const { rating, reviewCount } = parseMapsRatingAndReviews(result.ratingText);
 
         targets.push({
           address: result.address,
           businessName: result.title,
           category: result.category,
-          phone: result.phone,
+          phone: normalizePhoneText(result.phone),
           rating,
           reviewCount,
-          website: result.website,
+          website: normalizeWebsiteUrl(result.website),
         });
       }
     }
@@ -344,7 +450,14 @@ async function enrichWithAi(input: {
 }) {
   let ownerName = input.ownerName;
   let socialLink = input.socialLink;
-  let tacticalNote = "No intelligence generated.";
+  let tacticalNote = buildFallbackTacticalNote({
+    businessName: input.businessName,
+    category: input.category,
+    rating: input.rating,
+    reviewCount: input.reviewCount,
+    socialLink: input.socialLink,
+    websiteStatus: input.websiteStatus,
+  });
   let hasContactForm = false;
   let hasSocialMessaging = /facebook|instagram|messenger/i.test(socialLink);
   let assessment: WebsiteAssessment | null = null;
@@ -405,7 +518,17 @@ async function enrichWithAi(input: {
 
     ownerName = aiData.ownerName || ownerName;
     socialLink = aiData.socialLink || socialLink;
-    tacticalNote = aiData.tacticalNote || tacticalNote;
+    tacticalNote = sanitizeTacticalNote(
+      aiData.tacticalNote,
+      buildFallbackTacticalNote({
+        businessName: input.businessName,
+        category: input.category,
+        rating: input.rating,
+        reviewCount: input.reviewCount,
+        socialLink,
+        websiteStatus: input.websiteStatus,
+      }),
+    );
     hasContactForm = aiData.hasContactForm === true;
     hasSocialMessaging = aiData.hasSocialMessaging === true || hasSocialMessaging;
 
@@ -439,9 +562,15 @@ async function enrichWithAi(input: {
       pages: input.discoveryPages,
     });
     email = emailResolution.email || email;
-  } catch (geminiError: unknown) {
-    const message = geminiError instanceof Error ? geminiError.message : "Unknown AI error";
-    tacticalNote = `AI Error: ${message}`;
+  } catch {
+    tacticalNote = buildFallbackTacticalNote({
+      businessName: input.businessName,
+      category: input.category,
+      rating: input.rating,
+      reviewCount: input.reviewCount,
+      socialLink,
+      websiteStatus: input.websiteStatus,
+    });
   }
 
   return {
@@ -557,6 +686,8 @@ export async function executeScrapeJob(input: ExecuteScrapeJobInput): Promise<Ex
       let socialLink = "";
       let websiteStatus = "MISSING";
       let discoveryPages: EmailDiscoveryPage[] = [];
+      const effectiveCategory = normalizeCategory(target.category, input.niche);
+      const scoringCategory = effectiveCategory || input.niche;
 
       try {
         if (shouldAbort()) {
@@ -606,7 +737,7 @@ export async function executeScrapeJob(input: ExecuteScrapeJobInput): Promise<Ex
       if (model) {
         const aiResult = await enrichWithAi({
           businessName: target.businessName,
-          category: target.category,
+          category: scoringCategory,
           city: input.city,
           discoveryPages,
           emailResolution,
@@ -660,7 +791,7 @@ export async function executeScrapeJob(input: ExecuteScrapeJobInput): Promise<Ex
 
       const scoreResult = computeAxiomScore({
         assessment,
-        category: target.category,
+        category: scoringCategory,
         city: input.city,
         contact: contactValidation,
         hasContactForm,
@@ -678,7 +809,7 @@ export async function executeScrapeJob(input: ExecuteScrapeJobInput): Promise<Ex
         assessment,
         axiomScore: scoreResult.axiomScore,
         businessName: target.businessName,
-        category: target.category,
+        category: scoringCategory,
         city: input.city,
         niche: input.niche,
         painSignals,
@@ -709,7 +840,7 @@ export async function executeScrapeJob(input: ExecuteScrapeJobInput): Promise<Ex
         axiomWebsiteAssessment: assessment ? JSON.stringify(assessment) : null,
         businessName: target.businessName,
         callOpener: personalization.callOpener,
-        category: target.category.trim() || input.niche.trim(),
+        category: effectiveCategory || null,
         city: input.city,
         contactName: ownerName || null,
         dedupeKey: dedupe.key,
@@ -719,6 +850,7 @@ export async function executeScrapeJob(input: ExecuteScrapeJobInput): Promise<Ex
         disqualifyReason: disqualifyResult.primaryReason,
         email,
         emailConfidence: contactValidation.emailConfidence,
+        emailFlags: JSON.stringify(contactValidation.emailFlags),
         emailType: contactValidation.emailType,
         followUpQuestion: personalization.followUpQuestion,
         isArchived,
@@ -728,10 +860,13 @@ export async function executeScrapeJob(input: ExecuteScrapeJobInput): Promise<Ex
         painSignals: JSON.stringify(painSignals),
         phone: target.phone,
         phoneConfidence: contactValidation.phoneConfidence,
+        phoneFlags: JSON.stringify(contactValidation.phoneFlags),
         rating: target.rating,
         reviewCount: target.reviewCount,
         scoreBreakdown: JSON.stringify(scoreResult.breakdown),
         socialLink,
+        websiteDomain: extractDomain(target.website),
+        websiteUrl: target.website || null,
         source,
         tacticalNote,
         websiteGrade: assessment?.overallGrade || null,

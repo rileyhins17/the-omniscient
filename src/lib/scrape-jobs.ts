@@ -87,7 +87,7 @@ export interface ScrapeLeadWriteInput {
   axiomWebsiteAssessment: string | null;
   businessName: string;
   callOpener: string;
-  category: string;
+  category: string | null;
   city: string;
   contactName: string | null;
   dedupeKey: string;
@@ -96,6 +96,7 @@ export interface ScrapeLeadWriteInput {
   disqualifyReason: string | null;
   email: string;
   emailConfidence: number;
+  emailFlags: string | null;
   emailType: string;
   followUpQuestion: string;
   isArchived: boolean;
@@ -105,6 +106,7 @@ export interface ScrapeLeadWriteInput {
   painSignals: string;
   phone: string;
   phoneConfidence: number;
+  phoneFlags: string | null;
   rating: number;
   reviewCount: number;
   scoreBreakdown: string;
@@ -112,6 +114,8 @@ export interface ScrapeLeadWriteInput {
   source: string | null;
   tacticalNote: string;
   websiteGrade: string | null;
+  websiteDomain: string | null;
+  websiteUrl: string | null;
   websiteStatus: string;
 }
 

@@ -29,7 +29,7 @@ const jobStatusSchema = z.enum(["pending", "claimed", "running", "completed", "f
 
 const eventTypeSchema = z.enum(["log", "status", "progress", "done", "error", "result"]);
 
-const leadSchema = z
+  const leadSchema = z
   .object({
     address: z.string().optional().nullable(),
     axiomScore: z.number().finite(),
@@ -37,7 +37,7 @@ const leadSchema = z
     axiomWebsiteAssessment: z.string().optional().nullable(),
     businessName: z.string().trim().min(1).max(256),
     callOpener: z.string().min(1).max(2000),
-    category: z.string().trim().min(1).max(256),
+    category: z.string().trim().min(1).max(256).nullable().optional(),
     city: z.string().trim().min(1).max(128),
     contactName: z.string().optional().nullable(),
     dedupeKey: z.string().min(1).max(256),
@@ -46,6 +46,7 @@ const leadSchema = z
     disqualifyReason: z.string().optional().nullable(),
     email: z.string().max(320),
     emailConfidence: z.number().finite(),
+    emailFlags: z.string().max(512).optional().nullable(),
     emailType: z.string().min(1).max(64),
     followUpQuestion: z.string().min(1).max(2000),
     isArchived: z.boolean(),
@@ -55,6 +56,7 @@ const leadSchema = z
     painSignals: z.string().min(1),
     phone: z.string().max(64),
     phoneConfidence: z.number().finite(),
+    phoneFlags: z.string().max(512).optional().nullable(),
     rating: z.number().finite(),
     reviewCount: z.number().finite(),
     scoreBreakdown: z.string().min(1),
@@ -62,6 +64,8 @@ const leadSchema = z
     source: z.string().optional().nullable(),
     tacticalNote: z.string().min(1).max(4000),
     websiteGrade: z.string().optional().nullable(),
+    websiteDomain: z.string().max(255).optional().nullable(),
+    websiteUrl: z.string().max(2048).optional().nullable(),
     websiteStatus: z.string().trim().min(1).max(32),
   })
   .passthrough();

@@ -51,7 +51,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       typeof (lead as Record<string, unknown>).category === "string" &&
       String((lead as Record<string, unknown>).category).trim().length > 0
         ? String((lead as Record<string, unknown>).category).trim()
-        : currentJob.niche,
+        : null,
   };
 
   const validation = validateAgentLeadPayload(normalizedLead);

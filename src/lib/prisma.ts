@@ -51,6 +51,8 @@ export type LeadRecord = {
   phone: string | null;
   email: string | null;
   socialLink: string | null;
+  websiteUrl: string | null;
+  websiteDomain: string | null;
   rating: number | null;
   reviewCount: number | null;
   websiteStatus: string | null;
@@ -69,7 +71,9 @@ export type LeadRecord = {
   dedupeMatchedBy: string | null;
   emailType: string | null;
   emailConfidence: number | null;
+  emailFlags: string | null;
   phoneConfidence: number | null;
+  phoneFlags: string | null;
   disqualifiers: string | null;
   disqualifyReason: string | null;
   source: string | null;
@@ -130,6 +134,7 @@ type TableSpec<T extends Record<string, unknown>> = {
   dateFields: Set<keyof T>;
   idField: keyof T;
   integerFields: Set<keyof T>;
+  stringFields: Set<keyof T>;
   tableName: string;
   updatedAtField?: keyof T;
 };
@@ -196,6 +201,8 @@ const leadTable: TableSpec<LeadRecord> = {
     "phone",
     "email",
     "socialLink",
+    "websiteUrl",
+    "websiteDomain",
     "rating",
     "reviewCount",
     "websiteStatus",
@@ -214,7 +221,9 @@ const leadTable: TableSpec<LeadRecord> = {
     "dedupeMatchedBy",
     "emailType",
     "emailConfidence",
+    "emailFlags",
     "phoneConfidence",
+    "phoneFlags",
     "disqualifiers",
     "disqualifyReason",
     "source",
@@ -225,6 +234,36 @@ const leadTable: TableSpec<LeadRecord> = {
   dateFields: new Set(["createdAt", "lastUpdated"]),
   idField: "id",
   integerFields: new Set(["id", "reviewCount", "leadScore", "axiomScore"]),
+  stringFields: new Set([
+    "businessName",
+    "niche",
+    "city",
+    "category",
+    "address",
+    "phone",
+    "email",
+    "socialLink",
+    "websiteUrl",
+    "websiteDomain",
+    "websiteStatus",
+    "contactName",
+    "tacticalNote",
+    "websiteGrade",
+    "axiomTier",
+    "scoreBreakdown",
+    "painSignals",
+    "callOpener",
+    "followUpQuestion",
+    "axiomWebsiteAssessment",
+    "dedupeKey",
+    "dedupeMatchedBy",
+    "emailType",
+    "emailFlags",
+    "phoneFlags",
+    "disqualifiers",
+    "disqualifyReason",
+    "source",
+  ]),
   tableName: "Lead",
 };
 
@@ -234,6 +273,7 @@ const auditEventTable: TableSpec<AuditEventRecord> = {
   dateFields: new Set(["createdAt"]),
   idField: "id",
   integerFields: new Set(),
+  stringFields: new Set(),
   tableName: "AuditEvent",
 };
 
@@ -243,6 +283,7 @@ const rateLimitWindowTable: TableSpec<RateLimitWindowRecord> = {
   dateFields: new Set(["windowStart", "updatedAt"]),
   idField: "id",
   integerFields: new Set(["count"]),
+  stringFields: new Set(),
   tableName: "RateLimitWindow",
   updatedAtField: "updatedAt",
 };
@@ -253,6 +294,7 @@ const scrapeRunTable: TableSpec<ScrapeRunRecord> = {
   dateFields: new Set(["startedAt", "finishedAt"]),
   idField: "id",
   integerFields: new Set(),
+  stringFields: new Set(),
   tableName: "ScrapeRun",
 };
 
@@ -274,6 +316,7 @@ const userTable: TableSpec<UserRecord> = {
   dateFields: new Set(["banExpires", "createdAt", "updatedAt"]),
   idField: "id",
   integerFields: new Set(),
+  stringFields: new Set(),
   tableName: "User",
   updatedAtField: "updatedAt",
 };
@@ -360,6 +403,11 @@ function hydrateRow<T extends Record<string, unknown>>(
 
     if (spec.integerFields.has(column)) {
       hydrated[key] = rawValue === null || rawValue === undefined ? null : Number(rawValue);
+      continue;
+    }
+
+    if (spec.stringFields.has(column)) {
+      hydrated[key] = rawValue === null || rawValue === undefined ? null : String(rawValue);
       continue;
     }
 

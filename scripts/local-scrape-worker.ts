@@ -1,7 +1,7 @@
 import os from "node:os";
 
 import { buildSignedAgentHeaders } from "../src/lib/agent-protocol";
-import { executeScrapeJob } from "../src/lib/scrape-engine";
+import { executeScrapeJob } from "../src/lib/scrape-engine-worker";
 import type { ScrapeLeadWriteInput } from "../src/lib/scrape-jobs";
 
 type ClaimResponse = {
@@ -220,9 +220,9 @@ async function runOneJob(job: NonNullable<ClaimResponse["job"]>, existingDedupeK
       jobId: job.id,
       maxDepth: job.maxDepth,
       niche: job.niche,
-      persistLead: (lead) => sendLead(job.id, lead).then(() => undefined),
+      persistLead: (lead: ScrapeLeadWriteInput) => sendLead(job.id, lead).then(() => undefined),
       radius: job.radius,
-      sendEvent: (payload) => sendLog(job.id, payload),
+      sendEvent: (payload: Record<string, unknown>) => sendLog(job.id, payload),
       shouldAbort: () => cancelRequested,
     });
 
