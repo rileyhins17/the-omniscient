@@ -366,9 +366,10 @@ async function collectTargets(
           try {
             await detailPage.goto(place.url, {
               timeout: 15000,
-              waitUntil: "commit",
+              waitUntil: "domcontentloaded",
             });
-            await detailPage.waitForSelector("h1", { timeout: 10000 });
+            await detailPage.waitForSelector("body", { timeout: 10000 });
+            await detailPage.waitForTimeout(750);
 
             const details = await detailPage.evaluate(() => {
               const firstText = (selectors: string[]) => {
@@ -393,7 +394,11 @@ async function collectTargets(
                 return "";
               };
 
-              const title = document.querySelector("h1")?.innerText || "";
+              const title =
+                document.querySelector("h1")?.innerText?.trim() ||
+                document.querySelector('meta[property="og:title"]')?.getAttribute("content")?.trim() ||
+                document.querySelector('meta[name="title"]')?.getAttribute("content")?.trim() ||
+                "";
               const website = firstAttr([
                 'a[data-item-id="authority"]',
                 'a[data-tooltip*="Website"]',
@@ -425,7 +430,10 @@ async function collectTargets(
               return { address, category, phone, ratingText, title, website };
             });
 
-            return details;
+            return {
+              ...details,
+              title: details.title || place.name || "",
+            };
           } catch {
             return null;
           } finally {
