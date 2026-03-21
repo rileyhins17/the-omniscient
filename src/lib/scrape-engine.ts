@@ -37,6 +37,23 @@ type Target = {
   website: string;
 };
 
+type MapsListing = {
+  ariaLabel: string;
+  cardText: string;
+  name: string;
+  url: string;
+};
+
+type CollectedMapsTarget = {
+  address: string;
+  category: string;
+  detailMode: "direct" | "fallback";
+  phone: string;
+  ratingText: string;
+  title: string;
+  website: string;
+};
+
 export interface ExecuteScrapeJobInput {
   city: string;
   existingDedupeKeys: string[];
@@ -75,8 +92,14 @@ function normalizeWebsiteUrl(value: string): string {
   if (!clean) return "";
   try {
     const url = new URL(clean.startsWith("http") ? clean : `https://${clean}`);
+    if (url.hostname.includes("google.") && url.pathname.includes("/maps")) {
+      return "";
+    }
     return url.toString();
   } catch {
+    if (/google\.[^/]*\/maps|maps\.google\./i.test(clean)) {
+      return "";
+    }
     return clean;
   }
 }
@@ -96,6 +119,77 @@ function normalizeCategory(category: string, niche: string): string {
 
 function normalizePhoneText(phone: string): string {
   return normalizeWhitespace(phone).replace(/[.,;]+$/g, "");
+}
+
+function hasPhoneLikeText(value: string): boolean {
+  return /(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}/.test(value);
+}
+
+function isLikelyHoursText(value: string): boolean {
+  return /^(open|closed|opens|closes|hours?|website|call|directions|share|save)$/i.test(value) ||
+    /\b(open|closed|closes|opens)\b/i.test(value);
+}
+
+function isLikelyAddressText(value: string): boolean {
+  return /\d/.test(value) && /(st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|way|ln|lane|ct|court|hwy|highway|pkwy|parkway|unit|suite|floor|on|ontario|kitchener|waterloo|guelph|hamilton|cambridge)/i.test(value);
+}
+
+function extractPhoneFromText(value: string): string {
+  const match = value.match(/(?:\+?1[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}/);
+  return match ? normalizePhoneText(match[0]) : "";
+}
+
+function extractListingCategory(lines: string[], title: string): string {
+  const normalizedTitle = normalizeWhitespace(title).toLowerCase();
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    if (!line || lower === normalizedTitle) continue;
+    if (isLikelyHoursText(line) || hasPhoneLikeText(line) || isLikelyAddressText(line) || /reviews?|ratings?|stars?/i.test(line)) {
+      continue;
+    }
+    if (/website|http:|https:|maps\.google\.|google\.[^/]*\/maps/i.test(line)) {
+      continue;
+    }
+    return line;
+  }
+  return "";
+}
+
+function extractListingAddress(lines: string[], title: string): string {
+  const normalizedTitle = normalizeWhitespace(title).toLowerCase();
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    if (!line || lower === normalizedTitle) continue;
+    if (isLikelyAddressText(line)) {
+      return line;
+    }
+  }
+  return "";
+}
+
+function buildMapsListingFallback(listing: MapsListing): {
+  address: string;
+  category: string;
+  phone: string;
+  ratingText: string;
+  title: string;
+  website: string;
+} {
+  const sourceText = normalizeWhitespace([listing.ariaLabel, listing.cardText].filter(Boolean).join("\n"));
+  const lines = sourceText
+    .split(/\r?\n/)
+    .map((line) => normalizeWhitespace(line))
+    .filter(Boolean);
+  const title = normalizeWhitespace(listing.name || lines[0] || "");
+  const ratingText = sourceText;
+  return {
+    address: extractListingAddress(lines, title),
+    category: extractListingCategory(lines, title),
+    phone: extractPhoneFromText(sourceText),
+    ratingText,
+    title,
+    website: "",
+  };
 }
 
 function parseMapsRatingAndReviews(source: string): { rating: number; reviewCount: number } {
@@ -293,8 +387,6 @@ async function collectTargets(
   shouldAbort?: () => boolean,
 ): Promise<Target[]> {
   const page = await context.newPage();
-  let detailSuccessCount = 0;
-  let detailFallbackCount = 0;
   let missingTitleCount = 0;
 
   try {
@@ -341,16 +433,25 @@ async function collectTargets(
 
     const placeLinks = await page.locator("a.hfpxzc").evaluateAll((anchors) =>
       anchors
-        .map((anchor) => ({
-          name: anchor.getAttribute("aria-label") || "",
-          url: (anchor as HTMLAnchorElement).href || anchor.getAttribute("href") || "",
-        }))
+        .map((anchor) => {
+          const element = anchor as HTMLAnchorElement;
+          const card = element.closest("div.Nv2PK") || element.closest("div[role='article']") || element.parentElement;
+          return {
+            ariaLabel: element.getAttribute("aria-label") || "",
+            cardText: (card?.textContent || "").trim().slice(0, 2000),
+            name: element.getAttribute("aria-label") || "",
+            url: element.href || element.getAttribute("href") || "",
+          };
+        })
         .filter((place) => place.name && place.url && !place.url.includes("/search/")),
-    );
+    ) as MapsListing[];
 
-    await sendEvent({ message: `[MAPS] Found ${placeLinks.length} listings. Extracting details...` });
+    await sendEvent({ message: `[MAPS] Listings found: ${placeLinks.length}` });
+    await sendEvent({ message: `[MAPS] Detail extraction started` });
 
     const targets: Target[] = [];
+    let directDetailCount = 0;
+    let fallbackDetailCount = 0;
     const chunkSize = process.platform === "win32" ? 1 : 5;
 
     for (let index = 0; index < placeLinks.length; index += chunkSize) {
@@ -367,6 +468,7 @@ async function collectTargets(
         chunk.map(async (place) => {
           const detailPage = await context.newPage();
           const fallbackTitle = normalizeWhitespace(place.name);
+          const listingFallback = buildMapsListingFallback(place);
           try {
             await detailPage.goto(place.url, {
               timeout: 15000,
@@ -435,18 +537,18 @@ async function collectTargets(
             });
 
             return {
-              ...details,
-              title: normalizeWhitespace(details.title || fallbackTitle),
+              address: normalizeWhitespace(details.address || listingFallback.address),
+              category: normalizeWhitespace(details.category || listingFallback.category),
+              phone: normalizePhoneText(details.phone || listingFallback.phone),
+              ratingText: normalizeWhitespace(details.ratingText || listingFallback.ratingText),
+              title: normalizeWhitespace(details.title || fallbackTitle || listingFallback.title),
+              website: normalizeWebsiteUrl(details.website || listingFallback.website),
+              detailMode: "direct" as const,
             };
           } catch {
-            detailFallbackCount++;
             return {
-              address: "",
-              category: "",
-              phone: "",
-              ratingText: "",
-              title: fallbackTitle,
-              website: "",
+              ...listingFallback,
+              detailMode: "fallback" as const,
             };
           } finally {
             await detailPage.close();
@@ -454,14 +556,18 @@ async function collectTargets(
         }),
       );
 
-      for (const result of chunkResults) {
+      for (const result of chunkResults as Array<CollectedMapsTarget>) {
         if (!result || !result.title) {
           missingTitleCount++;
           continue;
         }
 
         const { rating, reviewCount } = parseMapsRatingAndReviews(result.ratingText);
-        detailSuccessCount++;
+        if (result.detailMode === "direct") {
+          directDetailCount++;
+        } else {
+          fallbackDetailCount++;
+        }
 
         targets.push({
           address: normalizeWhitespace(result.address),
@@ -475,8 +581,19 @@ async function collectTargets(
       }
     }
 
+    const targetsWithWebsite = targets.filter((target) => Boolean(target.website)).length;
+    const targetsWithCategory = targets.filter((target) => Boolean(target.category)).length;
+    const targetsWithPhone = targets.filter((target) => Boolean(target.phone)).length;
+    const targetsWithRatingReviews = targets.filter((target) => target.rating > 0 || target.reviewCount > 0).length;
+
+    await sendEvent({ message: `[MAPS] Detail scrape success count: ${directDetailCount}` });
+    await sendEvent({ message: `[MAPS] Detail fallback count: ${fallbackDetailCount}` });
+    await sendEvent({ message: `[MAPS] Targets with website: ${targetsWithWebsite}` });
+    await sendEvent({ message: `[MAPS] Targets with category: ${targetsWithCategory}` });
+    await sendEvent({ message: `[MAPS] Targets with phone: ${targetsWithPhone}` });
+    await sendEvent({ message: `[MAPS] Targets with rating/reviews: ${targetsWithRatingReviews}` });
     await sendEvent({
-      message: `[MAPS] Detail extraction complete: ${targets.length}/${placeLinks.length} usable (${detailSuccessCount} direct, ${detailFallbackCount} fallback)`,
+      message: `[MAPS] Detail extraction complete: ${targets.length}/${placeLinks.length} usable`,
     });
     if (missingTitleCount > 0) {
       await sendEvent({
