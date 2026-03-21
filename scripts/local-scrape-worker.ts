@@ -194,14 +194,22 @@ async function runOneJob(job: NonNullable<ClaimResponse["job"]>, existingDedupeK
   console.log(`[worker] running ${job.niche} in ${job.city} (${job.id})`);
   let cancelRequested = false;
   let timedOut = false;
+  let jobFinished = false;
 
   const heartbeatTimer = setInterval(async () => {
+    if (jobFinished) {
+      return;
+    }
+
     try {
       const result = await heartbeat(job.id);
       if (result.shouldAbort) {
         cancelRequested = true;
       }
     } catch (error) {
+      if (jobFinished) {
+        return;
+      }
       console.warn(`[worker] heartbeat failed for ${job.id}:`, error);
     }
   }, HEARTBEAT_INTERVAL_MS);
@@ -240,9 +248,11 @@ async function runOneJob(job: NonNullable<ClaimResponse["job"]>, existingDedupeK
       leadsFound: result.leadsFound,
       withEmail: result.withEmail,
     });
+    jobFinished = true;
     console.log(`[worker] completed ${job.id}`);
   } catch (error) {
     if (error instanceof JobFinishedError || isJobFinishedApiError(error)) {
+      jobFinished = true;
       console.log(`[worker] stopped ${job.id} because the control plane already finished it`);
       return;
     }

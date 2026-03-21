@@ -104,13 +104,56 @@ function normalizeWebsiteUrl(value: string): string {
   }
 }
 
-function normalizeCategory(category: string, niche: string): string {
+function normalizeCategory(category: string, niche: string, businessName?: string): string {
   const clean = normalizeWhitespace(category);
   if (!clean) return "";
+
+  if (/^\d+(?:\.\d+)?$/.test(clean)) {
+    return "";
+  }
 
   const comparable = clean.toLowerCase().replace(/[^a-z0-9]+/g, "");
   const nicheComparable = niche.toLowerCase().replace(/[^a-z0-9]+/g, "");
   if (!comparable || comparable === nicheComparable) {
+    return "";
+  }
+
+  const title = normalizeWhitespace(businessName || "");
+  const titleComparable = title.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (titleComparable && (comparable === titleComparable || comparable.startsWith(titleComparable) || titleComparable.startsWith(comparable))) {
+    return "";
+  }
+
+  const cleanWords = clean.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const titleWords = title.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  if (cleanWords.length >= 4 && titleWords.length >= 3) {
+    const sharedWordCount = cleanWords.filter((word) => titleWords.includes(word)).length;
+    if (sharedWordCount / Math.max(cleanWords.length, 1) >= 0.7) {
+      return "";
+    }
+  }
+
+  if (isLikelyHoursText(clean) || hasPhoneLikeText(clean) || isLikelyAddressText(clean)) {
+    return "";
+  }
+
+  if (/reviews?|ratings?|stars?/i.test(clean)) {
+    return "";
+  }
+
+  if (/^google maps$/i.test(clean)) {
+    return "";
+  }
+
+  if (/^(see|saved|recents|get app|search|share|directions|website|photos|hours?|open|closed|call|menu|overview|nearby|about)$/i.test(clean)) {
+    return "";
+  }
+
+  if (/^(restaurants?|hotels?|things to do|transit|parking|pharmacies|atms)$/i.test(clean)) {
+    return "";
+  }
+
+  if (/\b(get app|saved|recents|search this area|search this place|share|directions|website|photos|menu|overview|nearby)\b/i.test(clean)) {
     return "";
   }
 
@@ -139,6 +182,21 @@ function extractPhoneFromText(value: string): string {
   return match ? normalizePhoneText(match[0]) : "";
 }
 
+function cleanMapsAddressCandidate(value: string): string {
+  const clean = normalizeWhitespace(value);
+  if (!clean) {
+    return "";
+  }
+
+  return normalizeWhitespace(
+    clean
+      .replace(/^[^\p{L}\p{N}]+/u, "")
+      .replace(/\s*(?:Closed|Open now|Open|Opens|Closes|Hours|Website|Directions|Share|Save|Photos|Phone)\b.*$/i, "")
+      .replace(/\s*\(?\+?1?[\s.-]?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\)?\s*$/i, "")
+      .replace(/\s*[â€¢Â·]\s*$/, ""),
+  );
+}
+
 function isMeaningfulMapsTitle(value: string): boolean {
   const clean = normalizeWhitespace(value);
   return Boolean(clean) && clean.length >= 3 && !/^google maps$/i.test(clean);
@@ -151,7 +209,23 @@ function isMeaningfulMapsCategory(value: string, title: string): boolean {
     return false;
   }
 
+  if (/^\d+(?:\.\d+)?$/.test(clean)) {
+    return false;
+  }
+
   if (/^google maps$/i.test(clean)) {
+    return false;
+  }
+
+  if (/^(see|saved|recents|get app|search|share|directions|website|photos|hours?|open|closed|call|menu|overview|nearby|about)$/i.test(clean)) {
+    return false;
+  }
+
+  if (/\b(get app|saved|recents|search this area|search this place|share|directions|website|photos|menu|overview|nearby)\b/i.test(clean)) {
+    return false;
+  }
+
+  if (/[\p{S}\p{C}]/u.test(clean.replace(/[&'â€™.\-]/g, ""))) {
     return false;
   }
 
@@ -176,6 +250,10 @@ function isMeaningfulMapsCategory(value: string, title: string): boolean {
     return false;
   }
 
+  if (/^(restaurants?|hotels?|things to do|transit|parking|pharmacies|atms)$/i.test(clean)) {
+    return false;
+  }
+
   return true;
 }
 
@@ -196,10 +274,10 @@ function extractMapsCategoryFromText(value: string, title: string): string {
   }
 
   working = working.replace(/^\d+(?:\.\d+)?\s*/, "").trim();
-  working = working.replace(/^[��\-�|:]+\s*/u, "").trim();
+  working = working.replace(/^[ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·\-ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â|:]+\s*/u, "").trim();
 
   const cutTokens = [
-    /(?:^|\s)(?:�|�|\||�|-)(?:\s|$)/,
+    /(?:^|\s)(?:ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¢|ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·|\||ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â|-)(?:\s|$)/,
     /\bClosed\b/i,
     /\bOpen now\b/i,
     /\bOpens\b/i,
@@ -211,8 +289,8 @@ function extractMapsCategoryFromText(value: string, title: string): string {
     /\bPhotos\b/i,
     /\bPhone\b/i,
     /\bAddress\b/i,
-    /\d{1,6}\s+[A-Za-z0-9'�.\-/& ]{2,80}\s+(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Way|Ln|Lane|Ct|Court|Cres|Crescent|Pkwy|Parkway|Pl|Place|Ter|Terrace|Hwy|Highway)\b/i,
-    /\d{1,6}\s+[A-Za-z0-9'�.\-/& ]{2,80}\s+(?:Kitchener|Waterloo|Guelph|Hamilton|Cambridge|Toronto|London|Burlington|Ontario|ON)\b/i,
+    /\d{1,6}\s+[A-Za-z0-9'ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢.\-/& ]{2,80}\s+(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Way|Ln|Lane|Ct|Court|Cres|Crescent|Pkwy|Parkway|Pl|Place|Ter|Terrace|Hwy|Highway)\b/i,
+    /\d{1,6}\s+[A-Za-z0-9'ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢.\-/& ]{2,80}\s+(?:Kitchener|Waterloo|Guelph|Hamilton|Cambridge|Toronto|London|Burlington|Ontario|ON)\b/i,
   ];
 
   let endIndex = working.length;
@@ -225,7 +303,7 @@ function extractMapsCategoryFromText(value: string, title: string): string {
 
   let candidate = working.slice(0, endIndex).trim();
   candidate = candidate.replace(/^\d+(?:\.\d+)?\s*/, "").trim();
-  candidate = candidate.replace(/^[��\-�|:]+\s*/u, "").trim();
+  candidate = candidate.replace(/^[ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â·\-ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â|:]+\s*/u, "").trim();
 
   if (!candidate || candidate.length > 80) {
     return "";
@@ -262,29 +340,48 @@ function extractAddressFromMapsText(text: string, title: string): string {
   }
 
   const patterns = [
-    /\d{1,6}\s+[A-Za-z0-9'’.\-\/& ]{2,80}\s+(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Way|Ln|Lane|Ct|Court|Cres|Crescent|Pkwy|Parkway|Pl|Place|Ter|Terrace|Hwy|Highway)\b[^|]{0,80}/i,
-    /\d{1,6}\s+[A-Za-z0-9'’.\-\/& ]{2,80}\s+(?:Kitchener|Waterloo|Guelph|Hamilton|Cambridge|Toronto|London|Burlington|Ontario|ON)\b[^|]{0,80}/i,
+    /\d{1,6}\s+[A-Za-z0-9'Ã¢â‚¬â„¢\.\-/& ]{2,80}\s+(?:St|Street|Ave|Avenue|Rd|Road|Blvd|Boulevard|Dr|Drive|Way|Ln|Lane|Ct|Court|Cres|Crescent|Pkwy|Parkway|Pl|Place|Ter|Terrace|Hwy|Highway)\b[^|]{0,80}/i,
+    /\d{1,6}\s+[A-Za-z0-9'Ã¢â‚¬â„¢\.\-/& ]{2,80}\s+(?:Kitchener|Waterloo|Guelph|Hamilton|Cambridge|Toronto|London|Burlington|Ontario|ON)\b[^|]{0,80}/i,
   ];
 
   for (const pattern of patterns) {
     const match = tail.match(pattern) || source.match(pattern);
     if (match) {
-      return normalizeWhitespace(match[0]);
+      return cleanMapsAddressCandidate(match[0]);
     }
   }
 
   return "";
 }
 
-async function readLocatorText(page: any, selector: string): Promise<string> {
+async function readLocatorText(page: any, selector: string, preserveLineBreaks = false): Promise<string> {
   try {
+    const text = await (page as any)
+      .evaluate((sel: string) => {
+        const element = document.querySelector(sel) as HTMLElement | null;
+        if (!element) {
+          return "";
+        }
+        return (element.innerText || element.textContent || "").trim();
+      }, selector)
+      .catch(() => "");
+
+    if (text) {
+      return preserveLineBreaks ? text.replace(/\r\n/g, "\n").trim() : normalizeWhitespace(text);
+    }
+
     const locator = page.locator(selector);
     if ((await locator.count()) === 0) {
       return "";
     }
 
-    const text = await locator.first().textContent();
-    return normalizeWhitespace(text || "");
+    const first = locator.first();
+    const fallbackText = await first.innerText().catch(async () => first.textContent());
+    if (preserveLineBreaks) {
+      return (fallbackText || "").replace(/\r\n/g, "\n").trim();
+    }
+
+    return normalizeWhitespace(fallbackText || "");
   } catch {
     return "";
   }
@@ -292,13 +389,30 @@ async function readLocatorText(page: any, selector: string): Promise<string> {
 
 async function readLocatorAttribute(page: any, selector: string, attribute: string): Promise<string> {
   try {
+    const value = await (page as any)
+      .evaluate(
+        ([sel, attr]: [string, string]) => {
+          const element = document.querySelector(sel) as HTMLElement | null;
+          if (!element) {
+            return "";
+          }
+          return element.getAttribute(attr) || "";
+        },
+        [selector, attribute],
+      )
+      .catch(() => "");
+
+    if (value) {
+      return normalizeWhitespace(value);
+    }
+
     const locator = page.locator(selector);
     if ((await locator.count()) === 0) {
       return "";
     }
 
-    const value = await locator.first().getAttribute(attribute);
-    return normalizeWhitespace(value || "");
+    const fallbackValue = await locator.first().getAttribute(attribute);
+    return normalizeWhitespace(fallbackValue || "");
   } catch {
     return "";
   }
@@ -324,6 +438,48 @@ function extractListingAddress(lines: string[], title: string): string {
   return "";
 }
 
+function extractCategoryFromBodyText(bodyText: string, title: string): string {
+  const lines = bodyText
+    .split(/\r?\n/)
+    .map((line) => normalizeWhitespace(line))
+    .filter(Boolean);
+  const normalizedTitle = normalizeWhitespace(title).toLowerCase();
+  const titleIndex = lines.findIndex((line) => {
+    const lower = line.toLowerCase();
+    return Boolean(lower && normalizedTitle && (lower === normalizedTitle || lower.includes(normalizedTitle) || normalizedTitle.includes(lower)));
+  });
+  const scanLines = titleIndex >= 0 ? lines.slice(titleIndex + 1) : lines;
+
+  for (const line of scanLines) {
+    const lower = line.toLowerCase();
+    if (!line || lower === normalizedTitle) continue;
+    if (/^\d+(?:\.\d+)?$/.test(line)) continue;
+
+    const dotIndex = line.search(/[\u00B7\u2022]/u);
+    if (dotIndex > 0) {
+      let candidate = normalizeWhitespace(line.slice(0, dotIndex));
+      candidate = candidate.replace(/^\d+(?:\.\d+)?\s*/, "").trim();
+      if (!candidate || candidate.length > 40) continue;
+      if (/^google maps$/i.test(candidate)) continue;
+      if (isLikelyHoursText(candidate) || hasPhoneLikeText(candidate) || isLikelyAddressText(candidate)) continue;
+      return candidate;
+    }
+
+    if (line.length <= 60 && isMeaningfulMapsCategory(line, title)) {
+      return line;
+    }
+
+    if (isLikelyHoursText(line) || hasPhoneLikeText(line) || isLikelyAddressText(line)) {
+      continue;
+    }
+    if (/reviews?|ratings?|stars?|open now|closed|hours?|website|directions|save|share|address/i.test(line)) {
+      continue;
+    }
+  }
+
+  return "";
+}
+
 function buildMapsListingFallback(listing: MapsListing): {
   address: string;
   category: string;
@@ -337,7 +493,7 @@ function buildMapsListingFallback(listing: MapsListing): {
   const ratingText = sourceText;
   return {
     address: extractAddressFromMapsText(sourceText, title),
-    category: extractMapsCategoryFromText(sourceText, title) || extractCategoryFromMapsText(sourceText, title),
+    category: extractCategoryFromBodyText(sourceText, title) || extractMapsCategoryFromText(sourceText, title),
     phone: extractPhoneFromText(sourceText),
     ratingText,
     title,
@@ -351,7 +507,7 @@ async function extractMapsDetailFromPage(
   fallbackTitle: string,
   listingFallback: Omit<CollectedMapsTarget, "detailMode">,
 ): Promise<CollectedMapsTarget> {
-  const bodyText = await readLocatorText(detailPage, "body");
+  const bodyText = await readLocatorText(detailPage, "body", true);
   const titleCandidate =
     normalizeWhitespace(
       (await readLocatorText(detailPage, "h1")) ||
@@ -379,20 +535,24 @@ async function extractMapsDetailFromPage(
     );
   const address =
     normalizeWhitespace(
-      (await readLocatorText(detailPage, 'button[data-item-id="address"], a[data-item-id="address"], button[data-tooltip*="Address"]'))
-        .replace(/^Address:\s*/i, "") ||
+      cleanMapsAddressCandidate(
+        (await readLocatorText(detailPage, 'button[data-item-id="address"], a[data-item-id="address"], button[data-tooltip*="Address"]'))
+          .replace(/^Address:\s*/i, ""),
+      ) ||
         extractAddressFromMapsText(bodyText, title) ||
         listingFallback.address,
     );
+  const directCategory = extractCategoryFromBodyText(bodyText, title);
   const category =
     normalizeWhitespace(
       extractMapsCategoryFromText(
         await readLocatorText(
-        detailPage,
-        'button[jsaction="pane.rating.category"], button[jsaction*="pane.rating.category"], button[data-item-id="category"], div[data-item-id="category"]',
-      ),
+          detailPage,
+          'button[jsaction="pane.rating.category"], button[jsaction*="pane.rating.category"], button[data-item-id="category"], div[data-item-id="category"]',
+        ),
         title,
       ) ||
+        directCategory ||
         extractCategoryFromMapsText(bodyText, title) ||
         listingFallback.category,
     );
@@ -426,7 +586,7 @@ function parseMapsRatingAndReviews(source: string): { rating: number; reviewCoun
 
   const candidatePatterns = [
     /([\d.]+)\s*(?:stars?|rating)[^\d]{0,40}([\d,]+)\s*(?:reviews?|ratings?)/i,
-    /([\d.]+)\s*[★☆]\s*([\d,]+)/i,
+    /([\d.]+)\s*[ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã¢â‚¬Â¹Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ]\s*([\d,]+)/i,
     /rating[:\s]+([\d.]+)[^\d]{0,40}reviews?[:\s]+([\d,]+)/i,
     /([\d.]+)\s*\(\s*([\d,]+)\s*\)\s*(?:reviews?|ratings?)?/i,
   ];
@@ -701,7 +861,7 @@ async function collectTargets(
               timeout: 15000,
               waitUntil: "commit",
             });
-            await detailPage.waitForTimeout(250);
+            await detailPage.waitForTimeout(1000);
 
             return await extractMapsDetailFromPage(detailPage, place, fallbackTitle, {
               address: listingFallback.address,
@@ -744,7 +904,7 @@ async function collectTargets(
         targets.push({
           address: normalizeWhitespace(result.address),
           businessName: result.title,
-          category: normalizeCategory(result.category, niche),
+          category: normalizeCategory(result.category, niche, result.title),
           phone: normalizePhoneText(result.phone),
           rating,
           reviewCount,
@@ -1040,7 +1200,7 @@ export async function executeScrapeJob(input: ExecuteScrapeJobInput): Promise<Ex
       let socialLink = "";
       let websiteStatus = "MISSING";
       let discoveryPages: EmailDiscoveryPage[] = [];
-      const effectiveCategory = normalizeCategory(target.category, input.niche);
+      const effectiveCategory = normalizeCategory(target.category, input.niche, target.businessName);
       const scoringCategory = effectiveCategory || input.niche;
 
       try {
@@ -1316,6 +1476,9 @@ export async function executeScrapeJob(input: ExecuteScrapeJobInput): Promise<Ex
     }
   }
 }
+
+
+
 
 
 
