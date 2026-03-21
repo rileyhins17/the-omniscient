@@ -906,10 +906,9 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                                         <TableRow key={`${lead.id}-expanded`} className="bg-white/[0.02] border-white/[0.04]">
                                             <TableCell
                                                 colSpan={8}
-                                                className="py-4 px-6 align-top"
-                                                style={{ whiteSpace: "normal" }}
+                                                className="whitespace-normal break-words px-6 py-4 align-top"
                                             >
-                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-slide-up min-w-0">
+                                                <div className="grid min-w-0 grid-cols-1 gap-4 animate-slide-up items-start md:grid-cols-3">
                                                     <div className="glass rounded-lg p-4 space-y-2 min-w-0">
                                                         <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Contact Details</h4>
                                                         {lead.contactName && (
@@ -963,7 +962,7 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                                                     <div className="glass rounded-lg p-4 space-y-2 min-w-0">
                                                         <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">AI Intelligence</h4>
                                                         <p
-                                                            className="text-xs text-zinc-300 leading-relaxed max-h-56 overflow-y-auto pr-1"
+                                                            className="min-w-0 max-w-full text-xs leading-relaxed text-zinc-300"
                                                             style={{
                                                                 whiteSpace: "pre-wrap",
                                                                 overflowWrap: "anywhere",
