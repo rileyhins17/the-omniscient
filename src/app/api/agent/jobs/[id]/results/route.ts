@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { isValidJobId, normalizeAgentName, validateAgentLeadPayload } from "@/lib/agent-protocol";
 import { appendScrapeJobEvent } from "@/lib/scrape-jobs";
 import { requireAgentAuth } from "@/lib/agent-auth";
+import { extractDomain } from "@/lib/dedupe";
 import { getPrisma } from "@/lib/prisma";
 import { getScrapeJob } from "@/lib/scrape-jobs";
 
@@ -13,6 +14,62 @@ function cleanText(value: unknown): string | null {
 
   const clean = value.trim();
   return clean.length > 0 ? clean : null;
+}
+
+function cleanJsonText(value: unknown): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    return cleanText(value);
+  }
+
+  if (Array.isArray(value) || typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return null;
+    }
+  }
+
+  return cleanText(String(value));
+}
+
+function normalizeLeadPayload(lead: Record<string, unknown>) {
+  const category = cleanText(lead.category) ?? cleanText(lead.niche) ?? null;
+  const rawWebsiteUrl = cleanText(lead.websiteUrl);
+  const websiteUrl =
+    rawWebsiteUrl &&
+    rawWebsiteUrl.length <= 2048 &&
+    !/google\.[^/]*\/maps|maps\.google\./i.test(rawWebsiteUrl)
+      ? rawWebsiteUrl
+      : null;
+  const websiteDomain =
+    cleanText(lead.websiteDomain) ||
+    (websiteUrl ? extractDomain(websiteUrl) : null);
+
+  return {
+    ...lead,
+    address: cleanText(lead.address),
+    category,
+    contactName: cleanText(lead.contactName),
+    callOpener: cleanText(lead.callOpener),
+    disqualifiers: cleanText(lead.disqualifiers),
+    disqualifyReason: cleanText(lead.disqualifyReason),
+    email: cleanText(lead.email) || "",
+    emailFlags: cleanJsonText(lead.emailFlags),
+    followUpQuestion: cleanText(lead.followUpQuestion),
+    painSignals: cleanJsonText(lead.painSignals) || "[]",
+    phone: cleanText(lead.phone) || "",
+    phoneFlags: cleanJsonText(lead.phoneFlags),
+    scoreBreakdown: cleanJsonText(lead.scoreBreakdown) || "{}",
+    socialLink: cleanText(lead.socialLink),
+    source: cleanText(lead.source),
+    tacticalNote: cleanText(lead.tacticalNote) || "",
+    websiteDomain: websiteDomain && websiteDomain.length <= 255 ? websiteDomain : null,
+    websiteUrl,
+  };
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -54,31 +111,17 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     return NextResponse.json({ error: "Invalid lead payload" }, { status: 400 });
   }
 
-  const normalizedLead = {
-    ...(lead as Record<string, unknown>),
-    address: cleanText((lead as Record<string, unknown>).address),
-    category: cleanText((lead as Record<string, unknown>).category),
-    contactName: cleanText((lead as Record<string, unknown>).contactName),
-    callOpener: cleanText((lead as Record<string, unknown>).callOpener),
-    disqualifiers: cleanText((lead as Record<string, unknown>).disqualifiers),
-    disqualifyReason: cleanText((lead as Record<string, unknown>).disqualifyReason),
-    email: cleanText((lead as Record<string, unknown>).email) || "",
-    emailFlags: cleanText((lead as Record<string, unknown>).emailFlags),
-    followUpQuestion: cleanText((lead as Record<string, unknown>).followUpQuestion),
-    painSignals: cleanText((lead as Record<string, unknown>).painSignals) || "[]",
-    phone: cleanText((lead as Record<string, unknown>).phone) || "",
-    phoneFlags: cleanText((lead as Record<string, unknown>).phoneFlags),
-    scoreBreakdown: cleanText((lead as Record<string, unknown>).scoreBreakdown) || "{}",
-    socialLink: cleanText((lead as Record<string, unknown>).socialLink),
-    source: cleanText((lead as Record<string, unknown>).source),
-    tacticalNote: cleanText((lead as Record<string, unknown>).tacticalNote) || "",
-    websiteDomain: cleanText((lead as Record<string, unknown>).websiteDomain),
-    websiteUrl: cleanText((lead as Record<string, unknown>).websiteUrl),
-  };
+  const normalizedLead = normalizeLeadPayload(lead as Record<string, unknown>);
 
   const validation = validateAgentLeadPayload(normalizedLead);
 
   if (!validation.success) {
+    console.warn(`[agent.results] Lead validation failed for job ${jobId}: ${validation.error}`);
+    await appendScrapeJobEvent(jobId, "error", {
+      jobId,
+      jobStatus: currentJob.status,
+      message: `[LEAD] Validation failed: ${validation.error}`,
+    });
     return NextResponse.json({ error: validation.error }, { status: 400 });
   }
 

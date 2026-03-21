@@ -295,6 +295,7 @@ async function collectTargets(
   const page = await context.newPage();
   let detailSuccessCount = 0;
   let detailFallbackCount = 0;
+  let missingTitleCount = 0;
 
   try {
     if (shouldAbort?.()) {
@@ -445,7 +446,7 @@ async function collectTargets(
               phone: "",
               ratingText: "",
               title: fallbackTitle,
-              website: place.url || "",
+              website: "",
             };
           } finally {
             await detailPage.close();
@@ -454,7 +455,10 @@ async function collectTargets(
       );
 
       for (const result of chunkResults) {
-        if (!result || !result.title) continue;
+        if (!result || !result.title) {
+          missingTitleCount++;
+          continue;
+        }
 
         const { rating, reviewCount } = parseMapsRatingAndReviews(result.ratingText);
         detailSuccessCount++;
@@ -474,6 +478,11 @@ async function collectTargets(
     await sendEvent({
       message: `[MAPS] Detail extraction complete: ${targets.length}/${placeLinks.length} usable (${detailSuccessCount} direct, ${detailFallbackCount} fallback)`,
     });
+    if (missingTitleCount > 0) {
+      await sendEvent({
+        message: `[MAPS] Dropped ${missingTitleCount} listings with no usable title after detail extraction`,
+      });
+    }
 
     return targets;
   } finally {

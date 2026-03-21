@@ -29,7 +29,7 @@ const jobStatusSchema = z.enum(["pending", "claimed", "running", "completed", "f
 
 const eventTypeSchema = z.enum(["log", "status", "progress", "done", "error", "result"]);
 
-  const leadSchema = z
+const leadSchema = z
   .object({
     address: z.string().optional().nullable(),
     axiomScore: z.number().finite(),
@@ -69,6 +69,22 @@ const eventTypeSchema = z.enum(["log", "status", "progress", "done", "error", "r
     websiteStatus: z.string().trim().min(1).max(32),
   })
   .passthrough();
+
+function formatZodIssues(issues: Array<{ message: string; path: ReadonlyArray<unknown> }>): string {
+  if (issues.length === 0) {
+    return "Invalid payload.";
+  }
+
+  return issues
+    .map((issue) => {
+      const path =
+        issue.path.length > 0
+          ? issue.path.map((part) => String(part)).join(".")
+          : "<root>";
+      return `${path}: ${issue.message}`;
+    })
+    .join("; ");
+}
 
 const statusPayloadSchema = z.object({
   jobId: jobIdSchema,
@@ -113,7 +129,7 @@ export function isValidAgentEventType(value: unknown): value is "log" | "status"
 export function validateAgentLeadPayload(value: unknown): { success: true; lead: ScrapeLeadWriteInput } | { success: false; error: string } {
   const result = leadSchema.safeParse(value);
   if (!result.success) {
-    return { success: false, error: "Invalid lead payload" };
+    return { success: false, error: formatZodIssues(result.error.issues) };
   }
 
   return { success: true, lead: result.data as ScrapeLeadWriteInput };
@@ -122,7 +138,7 @@ export function validateAgentLeadPayload(value: unknown): { success: true; lead:
 export function validateAgentStatusPayload(value: unknown): { success: true; payload: z.infer<typeof statusPayloadSchema> } | { success: false; error: string } {
   const result = statusPayloadSchema.safeParse(value);
   if (!result.success) {
-    return { success: false, error: "Invalid status payload" };
+    return { success: false, error: formatZodIssues(result.error.issues) };
   }
 
   return { success: true, payload: result.data };
@@ -131,7 +147,7 @@ export function validateAgentStatusPayload(value: unknown): { success: true; pay
 export function validateAgentProgressPayload(value: unknown): { success: true; payload: z.infer<typeof progressPayloadSchema> } | { success: false; error: string } {
   const result = progressPayloadSchema.safeParse(value);
   if (!result.success) {
-    return { success: false, error: "Invalid log payload" };
+    return { success: false, error: formatZodIssues(result.error.issues) };
   }
 
   return { success: true, payload: result.data };
