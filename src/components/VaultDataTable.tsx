@@ -904,9 +904,13 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                                     {/* Expanded Detail Row */}
                                     {expandedId === lead.id && (
                                         <TableRow key={`${lead.id}-expanded`} className="bg-white/[0.02] border-white/[0.04]">
-                                            <TableCell colSpan={8} className="py-4 px-6">
-                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-slide-up">
-                                                    <div className="glass rounded-lg p-4 space-y-2">
+                                            <TableCell
+                                                colSpan={8}
+                                                className="py-4 px-6 align-top"
+                                                style={{ whiteSpace: "normal" }}
+                                            >
+                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 animate-slide-up min-w-0">
+                                                    <div className="glass rounded-lg p-4 space-y-2 min-w-0">
                                                         <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Contact Details</h4>
                                                         {lead.contactName && (
                                                             <div className="flex items-center gap-2 text-xs">
@@ -936,7 +940,7 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                                                             <p className="text-xs text-zinc-600 italic">No contact details found.</p>
                                                         )}
                                                     </div>
-                                                    <div className="glass rounded-lg p-4 space-y-2">
+                                                    <div className="glass rounded-lg p-4 space-y-2 min-w-0">
                                                         <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Location</h4>
                                                         <div className="flex items-center gap-2 text-xs">
                                                             <MapPin className="w-3 h-3 text-emerald-400" />
@@ -956,9 +960,16 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                                                             Added: {new Date(lead.createdAt).toLocaleDateString("en-CA")}
                                                         </div>
                                                     </div>
-                                                    <div className="glass rounded-lg p-4">
+                                                    <div className="glass rounded-lg p-4 space-y-2 min-w-0">
                                                         <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">AI Intelligence</h4>
-                                                        <p className="text-xs text-zinc-300 leading-relaxed">
+                                                        <p
+                                                            className="text-xs text-zinc-300 leading-relaxed max-h-56 overflow-y-auto pr-1"
+                                                            style={{
+                                                                whiteSpace: "pre-wrap",
+                                                                overflowWrap: "anywhere",
+                                                                wordBreak: "break-word",
+                                                            }}
+                                                        >
                                                             {lead.tacticalNote || "No intelligence generated."}
                                                         </p>
                                                     </div>
