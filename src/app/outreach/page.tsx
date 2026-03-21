@@ -90,9 +90,9 @@ export default async function OutreachPage() {
       <div className="animate-slide-up" style={{ animationDelay: "200ms" }}>
         <Card className="glass-strong overflow-hidden rounded-xl glow-cyan">
           <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-lg font-bold text-white">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <CardTitle className="flex items-center gap-2 text-lg font-bold text-white sm:text-xl">
                   <MessageSquareText className="h-5 w-5 text-cyan-400" />
                   Contacted Lead Operations
                 </CardTitle>
@@ -101,7 +101,7 @@ export default async function OutreachPage() {
                 </CardDescription>
               </div>
               <Badge
-                className="border-cyan-900 bg-cyan-950/30 px-3 py-1 font-mono text-cyan-400"
+                className="self-start border-cyan-900 bg-cyan-950/30 px-3 py-1 font-mono text-cyan-400"
                 variant="outline"
               >
                 {leads.length} Contacted Leads

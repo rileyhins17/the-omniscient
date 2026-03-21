@@ -787,8 +787,215 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                 </div>
             )}
 
-            {/* Table */}
-            <div className="rounded-lg border border-white/[0.06] overflow-x-auto bg-black/20">
+            {/* Mobile Cards */}
+            <div className="space-y-3 md:hidden">
+                {pagedLeads.length === 0 ? (
+                    <div className="rounded-lg border border-white/[0.06] bg-black/20 px-4 py-12 text-center">
+                        <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-zinc-600">
+                            <Globe className="h-10 w-10" />
+                            <div>
+                                <p className="text-sm text-zinc-500">No leads found</p>
+                                <p className="mt-1 text-[10px] text-zinc-700">
+                                    {activeFilterCount > 0 ? "Try adjusting your filters" : "Run an extraction to populate your vault"}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    pagedLeads.map((lead) => (
+                        <div
+                            key={lead.id}
+                            className="rounded-xl border border-white/[0.06] bg-black/20 p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]"
+                        >
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 space-y-1">
+                                    <div className="text-sm font-semibold text-white">{lead.businessName}</div>
+                                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                                        <span>{lead.city}</span>
+                                        <span>•</span>
+                                        <span className="font-mono text-purple-400/80">{lead.niche}</span>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                                        {lead.rating != null && (
+                                            <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-amber-400">
+                                                <Star className="h-3 w-3" />
+                                                {lead.rating}
+                                            </span>
+                                        )}
+                                        <span className="font-mono">{lead.reviewCount || 0} reviews</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-col items-end gap-1">
+                                    {isContactedOutreachStatus(lead.outreachStatus) && (
+                                        <OutreachStatusBadge status={lead.outreachStatus} />
+                                    )}
+                                    {lead.websiteStatus === "MISSING" ? (
+                                        <span className="inline-flex items-center gap-1 rounded-full border border-red-500/20 bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-400">
+                                            <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                                            No Site
+                                        </span>
+                                    ) : (
+                                        <span className="inline-flex items-center gap-1 rounded-full border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold text-blue-400">
+                                            <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                                            Has Site
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="mt-3 space-y-1 text-xs">
+                                {lead.contactName ? <div className="text-amber-300">{lead.contactName}</div> : null}
+                                {lead.phone ? <div className="break-all font-mono text-zinc-300">{lead.phone}</div> : null}
+                                {lead.email ? <div className="break-all font-mono text-cyan-300">{lead.email}</div> : null}
+                                {lead.socialLink ? <div className="break-all text-blue-300">{lead.socialLink}</div> : null}
+                                {!lead.contactName && !lead.phone && !lead.email && !lead.socialLink ? (
+                                    <div className="italic text-zinc-600">No contact info</div>
+                                ) : null}
+                            </div>
+
+                            <div className="mt-4 grid grid-cols-2 gap-2">
+                                <OutreachEditorSheet
+                                    lead={lead}
+                                    onSaved={handleOutreachSaved}
+                                    buttonLabel="Outreach"
+                                    buttonVariant="ghost"
+                                    buttonSize="sm"
+                                    buttonClassName="w-full justify-center border border-cyan-500/20 bg-cyan-500/5 text-cyan-300 hover:bg-cyan-500/10"
+                                />
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full justify-center border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/10"
+                                    onClick={() => router.push(`/lead/${lead.id}`)}
+                                >
+                                    <FileText className="h-3.5 w-3.5" />
+                                    Dossier
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full justify-center border border-white/10 text-zinc-400 hover:bg-white/5 hover:text-white"
+                                    onClick={() => setExpandedId(expandedId === lead.id ? null : lead.id)}
+                                >
+                                    {expandedId === lead.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                                    {expandedId === lead.id ? "Less" : "Details"}
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full justify-center border border-red-500/20 text-red-400 hover:bg-red-500/10"
+                                    onClick={() => void handleDelete(lead.id)}
+                                    disabled={deleting === lead.id}
+                                >
+                                    <Trash2 className={`h-3.5 w-3.5 ${deleting === lead.id ? "animate-pulse" : ""}`} />
+                                    Delete
+                                </Button>
+                            </div>
+
+                            {expandedId === lead.id && (
+                                <div className="mt-4 space-y-3">
+                                    <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+                                        <h4 className="mb-2 text-[10px] uppercase tracking-widest text-muted-foreground">Contact Details</h4>
+                                        <div className="space-y-2 text-xs">
+                                            {lead.contactName && (
+                                                <div className="flex items-center gap-2">
+                                                    <User className="h-3 w-3 text-amber-400" />
+                                                    <span className="text-amber-400 font-medium">{lead.contactName}</span>
+                                                </div>
+                                            )}
+                                            {lead.phone && (
+                                                <div className="flex items-center gap-2">
+                                                    <Phone className="h-3 w-3 text-zinc-500" />
+                                                    <span className="font-mono text-zinc-300">{lead.phone}</span>
+                                                </div>
+                                            )}
+                                            {lead.email && (
+                                                <div className="flex items-center gap-2">
+                                                    <Mail className="h-3 w-3 text-cyan-400" />
+                                                    <span className="break-all text-cyan-400">{lead.email}</span>
+                                                </div>
+                                            )}
+                                            {lead.socialLink && (
+                                                <a href={lead.socialLink} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-blue-400">
+                                                    <ExternalLink className="h-3 w-3" />
+                                                    <span className="break-all">{lead.socialLink.replace(/https?:\/\//, "")}</span>
+                                                </a>
+                                            )}
+                                            {!lead.contactName && !lead.phone && !lead.email && !lead.socialLink && (
+                                                <p className="italic text-zinc-600">No contact details found.</p>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+                                        <h4 className="mb-2 text-[10px] uppercase tracking-widest text-muted-foreground">Location</h4>
+                                        <div className="space-y-2 text-xs">
+                                            <div className="flex items-center gap-2">
+                                                <MapPin className="h-3 w-3 text-emerald-400" />
+                                                <span className="text-zinc-300">{lead.city}</span>
+                                            </div>
+                                            {lead.address && <p className="pl-5 text-zinc-500">{lead.address}</p>}
+                                            {lead.category && (
+                                                <div>
+                                                    <span className="inline-block rounded border border-purple-500/20 bg-purple-500/10 px-2 py-0.5 text-[10px] text-purple-400">
+                                                        {lead.category}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            <div className="text-[10px] text-zinc-600">
+                                                Added: {new Date(lead.createdAt).toLocaleDateString("en-CA")}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+                                        <h4 className="mb-2 text-[10px] uppercase tracking-widest text-muted-foreground">AI Intelligence</h4>
+                                        <p className="text-xs leading-relaxed text-zinc-300" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", wordBreak: "break-word" }}>
+                                            {lead.tacticalNote || "No intelligence generated."}
+                                        </p>
+                                    </div>
+
+                                    {isContactedOutreachStatus(lead.outreachStatus) && (
+                                        <div className="rounded-lg border border-cyan-500/10 bg-cyan-500/5 p-3">
+                                            <div className="mb-2 flex items-center justify-between gap-2">
+                                                <span className="text-[10px] uppercase tracking-widest text-cyan-300/70">Outreach</span>
+                                                <OutreachStatusBadge status={lead.outreachStatus} />
+                                            </div>
+                                            <div className="space-y-2 text-[11px] text-zinc-400">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span>Channel</span>
+                                                    <span className="text-zinc-200">{getOutreachChannelLabel(lead.outreachChannel)}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span>First Contact</span>
+                                                    <span className="text-zinc-200">{formatOutreachDate(lead.firstContactedAt, true)}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span>Last Contact</span>
+                                                    <span className="text-zinc-200">{formatOutreachDate(lead.lastContactedAt, true)}</span>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span>Follow-Up Due</span>
+                                                    <span className="text-zinc-200">{formatOutreachDate(lead.nextFollowUpDue)}</span>
+                                                </div>
+                                            </div>
+                                            {lead.outreachNotes && (
+                                                <p className="mt-3 text-[11px] leading-relaxed text-zinc-300" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
+                                                    {lead.outreachNotes}
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    ))
+                )}
+            </div>
+
+            {/* Desktop Table */}
+            <div className="hidden rounded-lg border border-white/[0.06] bg-black/20 md:block">
                 <Table>
                     <TableHeader className="bg-black/40">
                         <TableRow className="hover:bg-transparent border-white/[0.06]">
@@ -799,26 +1006,26 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                                 <span className="flex items-center">Business <SortIcon col="businessName" /></span>
                             </TableHead>
                             <TableHead
-                                className="font-bold text-zinc-400 text-xs cursor-pointer select-none hover:text-white transition-colors"
+                                className="hidden font-bold text-zinc-400 text-xs cursor-pointer select-none hover:text-white transition-colors md:table-cell"
                                 onClick={() => handleSort("niche")}
                             >
                                 <span className="flex items-center">Niche <SortIcon col="niche" /></span>
                             </TableHead>
                             <TableHead
-                                className="font-bold text-zinc-400 text-xs cursor-pointer select-none hover:text-white transition-colors"
+                                className="hidden font-bold text-zinc-400 text-xs cursor-pointer select-none hover:text-white transition-colors md:table-cell"
                                 onClick={() => handleSort("city")}
                             >
                                 <span className="flex items-center">City <SortIcon col="city" /></span>
                             </TableHead>
                             <TableHead className="font-bold text-zinc-400 text-xs">Contact</TableHead>
                             <TableHead
-                                className="font-bold text-zinc-400 text-xs cursor-pointer select-none hover:text-white transition-colors"
+                                className="hidden font-bold text-zinc-400 text-xs cursor-pointer select-none hover:text-white transition-colors md:table-cell"
                                 onClick={() => handleSort("rating")}
                             >
                                 <span className="flex items-center">Rating <SortIcon col="rating" /></span>
                             </TableHead>
                             <TableHead
-                                className="font-bold text-zinc-400 text-xs cursor-pointer select-none hover:text-white transition-colors"
+                                className="hidden font-bold text-zinc-400 text-xs cursor-pointer select-none hover:text-white transition-colors md:table-cell"
                                 onClick={() => handleSort("reviewCount")}
                             >
                                 <span className="flex items-center">Reviews <SortIcon col="reviewCount" /></span>
@@ -853,15 +1060,18 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                                         <TableCell className="font-medium text-white">
                                             <div className="min-w-0 space-y-1">
                                                 <span className="block text-sm">{lead.businessName}</span>
+                                                <span className="block text-[11px] text-zinc-500 md:hidden">
+                                                    {lead.city} • {lead.niche}
+                                                </span>
                                                 {isContactedOutreachStatus(lead.outreachStatus) && (
                                                     <OutreachStatusBadge status={lead.outreachStatus} />
                                                 )}
                                             </div>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="hidden md:table-cell">
                                             <span className="text-[10px] text-purple-400/80 font-mono">{lead.niche}</span>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="hidden md:table-cell">
                                             <span className="text-sm text-zinc-400">{lead.city}</span>
                                         </TableCell>
                                         <TableCell>
@@ -875,13 +1085,13 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                                                 )}
                                             </div>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="hidden md:table-cell">
                                             <div className="flex items-center gap-1">
                                                 <span className="text-amber-400">★</span>
                                                 <span className="font-bold text-sm">{lead.rating || "—"}</span>
                                             </div>
                                         </TableCell>
-                                        <TableCell>
+                                        <TableCell className="hidden md:table-cell">
                                             <span className="text-sm font-mono text-zinc-400">{lead.reviewCount || 0}</span>
                                         </TableCell>
                                         <TableCell>
@@ -1046,8 +1256,8 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
             </div>
 
             {/* Pagination */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
                     <span className="text-xs text-muted-foreground">Show</span>
                     {PAGE_OPTIONS.map(opt => (
                         <Button
@@ -1064,10 +1274,10 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                         </Button>
                     ))}
                     <span className="text-xs text-muted-foreground ml-2">
-                        {processedLeads.length} of {leads.length} total
+                            {processedLeads.length} of {leads.length} total
                     </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 self-end sm:self-auto">
                     <Button
                         variant="outline"
                         size="sm"

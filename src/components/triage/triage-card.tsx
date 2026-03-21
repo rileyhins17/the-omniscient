@@ -74,7 +74,7 @@ export function TriageCard({
 
     return (
         <div className={cn(
-            "glass-ultra rounded-2xl p-6 relative overflow-hidden transition-all duration-300",
+            "glass-ultra relative overflow-hidden rounded-2xl p-4 transition-all duration-300 sm:p-6",
             tierConfig.glow,
             className
         )}>
@@ -82,10 +82,10 @@ export function TriageCard({
             <div className={cn("absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r", tierConfig.gradient)} />
 
             {/* 1) Header */}
-            <div className="flex items-start justify-between mb-5">
+            <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div className="min-w-0 flex-1">
-                    <h2 className="text-xl font-bold text-white leading-tight truncate">{lead.businessName}</h2>
-                    <div className="flex items-center gap-3 mt-1.5">
+                    <h2 className="truncate text-lg font-bold leading-tight text-white sm:text-xl">{lead.businessName}</h2>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
                         <span className="text-[11px] text-purple-400/80 font-mono">{lead.niche}</span>
                         <span className="text-[11px] text-zinc-500 flex items-center gap-1">
                             <MapPin className="w-3 h-3" /> {lead.city}
@@ -97,8 +97,8 @@ export function TriageCard({
                         )}
                     </div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0 ml-4">
-                    <TierBadge tier={lead.axiomTier} score={lead.axiomScore} size="md" />
+                <div className="flex flex-wrap items-center gap-2 md:ml-4 md:flex-shrink-0 md:justify-end">
+                    <TierBadge tier={lead.axiomTier} score={lead.axiomScore} size="sm" />
                     {lead.websiteStatus && (
                         <span className={cn(
                             "inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono border",
@@ -130,9 +130,9 @@ export function TriageCard({
             </div>
 
             {/* 2) Contact strip */}
-            <div className="flex items-center gap-6 mb-5 py-3 px-4 glass rounded-xl">
+            <div className="mb-5 flex flex-col gap-3 rounded-xl px-4 py-3 glass md:flex-row md:items-center md:gap-6">
                 {lead.phone ? (
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                         <Phone className="w-3.5 h-3.5 text-zinc-400" />
                         <span className="text-sm font-mono text-zinc-200">{lead.phone}</span>
                         <CopyButton value={lead.phone} label="Copy phone" size="xs" />
@@ -154,10 +154,10 @@ export function TriageCard({
                     </div>
                 )}
 
-                <div className="h-4 w-px bg-white/[0.06]" />
+                <div className="hidden h-4 w-px bg-white/[0.06] md:block" />
 
                 {lead.email ? (
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
                         <Mail className="w-3.5 h-3.5 text-cyan-400/60" />
                         <span className="text-sm font-mono text-cyan-300/80 truncate max-w-[200px]">{lead.email}</span>
                         <CopyButton value={lead.email} label="Copy email" size="xs" />
@@ -266,7 +266,7 @@ export function TriageCard({
             </div>
 
             {/* 5) Footer */}
-            <div className="flex items-center gap-4 pt-3 border-t border-white/[0.04] text-[10px] text-zinc-600 font-mono">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 pt-3 border-t border-white/[0.04] text-[10px] text-zinc-600 font-mono">
                 {lead.source && <span>Source: {lead.source}</span>}
                 {lead.lastUpdated && (
                     <span className="flex items-center gap-1">

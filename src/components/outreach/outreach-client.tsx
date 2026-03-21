@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import { CalendarClock, Filter, Search } from "lucide-react";
 
 import { OutreachEditorSheet, type OutreachEditableLead } from "@/components/outreach/outreach-editor-sheet";
+import { OutreachStatusBadge } from "@/components/outreach/outreach-status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -246,7 +247,109 @@ export function OutreachClient({ initialLeads }: { initialLeads: OutreachEditabl
         </Button>
       </div>
 
-      <div className="rounded-lg border border-white/[0.06] bg-black/20">
+      <div className="space-y-3 md:hidden">
+        {filteredLeads.length === 0 ? (
+          <div className="rounded-lg border border-white/[0.06] bg-black/20 px-4 py-10 text-center">
+            <div className="mx-auto flex max-w-md flex-col items-center gap-2">
+              <CalendarClock className="h-8 w-8 text-zinc-700" />
+              <div className="text-sm font-semibold text-white">No outreach leads match these filters</div>
+              <div className="text-xs text-zinc-500">Adjust the status, channel, niche, city, or follow-up filter to widen the view.</div>
+            </div>
+          </div>
+        ) : (
+          filteredLeads.map((lead) => (
+            <div key={lead.id} className="rounded-xl border border-white/[0.06] bg-black/20 p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 space-y-1">
+                  <div className="text-sm font-semibold text-white">{lead.businessName}</div>
+                  <div className="text-[11px] text-zinc-500">
+                    {lead.city} • {lead.niche}
+                  </div>
+                </div>
+                <OutreachStatusBadge status={lead.outreachStatus} />
+              </div>
+
+              <div className="mt-3 space-y-1 text-xs">
+                {lead.contactName ? <div className="text-amber-300">{lead.contactName}</div> : null}
+                {lead.email ? <div className="break-all font-mono text-cyan-300">{lead.email}</div> : null}
+                {lead.phone ? <div className="font-mono text-zinc-300">{lead.phone}</div> : null}
+                {!lead.contactName && !lead.email && !lead.phone ? <div className="italic text-zinc-600">No contact info</div> : null}
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3">
+                <label className="space-y-1">
+                  <span className="text-[10px] uppercase tracking-widest text-zinc-500">Status</span>
+                  <select
+                    value={lead.outreachStatus || "NOT_CONTACTED"}
+                    onChange={(event) => void updateLeadInline(lead, { outreachStatus: event.target.value })}
+                    disabled={savingLeadId === lead.id}
+                    className="h-9 w-full rounded-md border border-white/10 bg-black/40 px-3 text-xs text-white outline-none disabled:opacity-50 focus:border-cyan-500/50"
+                  >
+                    {OUTREACH_STATUS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-[10px] uppercase tracking-widest text-zinc-500">Channel</span>
+                  <select
+                    value={lead.outreachChannel || ""}
+                    onChange={(event) => void updateLeadInline(lead, { outreachChannel: event.target.value || null })}
+                    disabled={savingLeadId === lead.id}
+                    className="h-9 w-full rounded-md border border-white/10 bg-black/40 px-3 text-xs text-white outline-none disabled:opacity-50 focus:border-cyan-500/50"
+                  >
+                    <option value="">No channel</option>
+                    {OUTREACH_CHANNEL_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-2 text-[11px] text-zinc-400 sm:grid-cols-2">
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+                  <div className="text-[10px] uppercase tracking-widest text-zinc-500">First Contacted</div>
+                  <div className="mt-1 text-zinc-200">{formatOutreachDate(lead.firstContactedAt, true)}</div>
+                </div>
+                <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+                  <div className="text-[10px] uppercase tracking-widest text-zinc-500">Last Contacted</div>
+                  <div className="mt-1 text-zinc-200">{formatOutreachDate(lead.lastContactedAt, true)}</div>
+                </div>
+              </div>
+
+              <div className="mt-2 rounded-lg border border-white/[0.06] bg-white/[0.03] p-3 text-[11px] text-zinc-300">
+                <div className="text-[10px] uppercase tracking-widest text-zinc-500">Next Follow-Up</div>
+                <div className="mt-1 text-zinc-200">{formatOutreachDate(lead.nextFollowUpDue)}</div>
+              </div>
+
+              <div className="mt-2 rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+                <div className="text-[10px] uppercase tracking-widest text-zinc-500">Notes</div>
+                <p className="mt-1 text-xs leading-relaxed text-zinc-300">
+                  {notePreview(lead.outreachNotes)}
+                </p>
+              </div>
+
+              <div className="mt-4 flex justify-end">
+                <OutreachEditorSheet
+                  lead={lead}
+                  onSaved={handleSavedLead}
+                  buttonLabel="Edit"
+                  buttonVariant="ghost"
+                  buttonSize="sm"
+                  buttonClassName="border border-cyan-500/20 bg-cyan-500/5 text-cyan-300 hover:bg-cyan-500/10"
+                />
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="hidden rounded-lg border border-white/[0.06] bg-black/20 md:block">
         <Table>
           <TableHeader className="bg-black/40">
             <TableRow className="border-white/[0.06] hover:bg-transparent">
@@ -254,10 +357,10 @@ export function OutreachClient({ initialLeads }: { initialLeads: OutreachEditabl
               <TableHead className="text-xs font-bold text-zinc-400">Contact</TableHead>
               <TableHead className="text-xs font-bold text-zinc-400">Status</TableHead>
               <TableHead className="text-xs font-bold text-zinc-400">Channel</TableHead>
-              <TableHead className="text-xs font-bold text-zinc-400">First Contacted</TableHead>
-              <TableHead className="text-xs font-bold text-zinc-400">Last Contacted</TableHead>
-              <TableHead className="text-xs font-bold text-zinc-400">Next Follow-Up</TableHead>
-              <TableHead className="text-xs font-bold text-zinc-400">Notes</TableHead>
+              <TableHead className="hidden text-xs font-bold text-zinc-400 md:table-cell">First Contacted</TableHead>
+              <TableHead className="hidden text-xs font-bold text-zinc-400 md:table-cell">Last Contacted</TableHead>
+              <TableHead className="hidden text-xs font-bold text-zinc-400 md:table-cell">Next Follow-Up</TableHead>
+              <TableHead className="hidden text-xs font-bold text-zinc-400 md:table-cell">Notes</TableHead>
               <TableHead className="text-xs font-bold text-zinc-400">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -324,16 +427,16 @@ export function OutreachClient({ initialLeads }: { initialLeads: OutreachEditabl
                       ))}
                     </select>
                   </TableCell>
-                  <TableCell className="align-top text-xs text-zinc-300">
+                  <TableCell className="hidden align-top text-xs text-zinc-300 md:table-cell">
                     {formatOutreachDate(lead.firstContactedAt, true)}
                   </TableCell>
-                  <TableCell className="align-top text-xs text-zinc-300">
+                  <TableCell className="hidden align-top text-xs text-zinc-300 md:table-cell">
                     {formatOutreachDate(lead.lastContactedAt, true)}
                   </TableCell>
-                  <TableCell className="align-top text-xs text-zinc-300">
+                  <TableCell className="hidden align-top text-xs text-zinc-300 md:table-cell">
                     {formatOutreachDate(lead.nextFollowUpDue)}
                   </TableCell>
-                  <TableCell className="whitespace-normal align-top">
+                  <TableCell className="hidden whitespace-normal align-top md:table-cell">
                     <div className="max-w-[260px] truncate text-xs leading-relaxed text-zinc-300" title={lead.outreachNotes || ""}>
                       {notePreview(lead.outreachNotes)}
                     </div>
