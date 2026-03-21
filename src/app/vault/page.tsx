@@ -4,6 +4,7 @@ import VaultDataTable from "@/components/VaultDataTable";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
+import { ToastProvider } from "@/components/ui/toast-provider";
 import { getPrisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 
@@ -91,7 +92,9 @@ export default async function TheVaultPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <VaultDataTable initialLeads={JSON.parse(JSON.stringify(leads))} />
+            <ToastProvider>
+              <VaultDataTable initialLeads={JSON.parse(JSON.stringify(leads))} />
+            </ToastProvider>
           </CardContent>
         </Card>
       </div>

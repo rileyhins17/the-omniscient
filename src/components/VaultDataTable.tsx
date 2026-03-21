@@ -5,6 +5,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
+import { OutreachEditorSheet } from "@/components/outreach/outreach-editor-sheet"
+import { OutreachStatusBadge } from "@/components/outreach/outreach-status-badge"
+import { formatOutreachDate, getOutreachChannelLabel, isContactedOutreachStatus } from "@/lib/outreach"
 import {
     Search, Download, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
     ArrowUpDown, ExternalLink, Phone, Mail, User, MapPin, Globe, Filter, X,
@@ -27,6 +30,12 @@ type Lead = {
     websiteStatus: string | null
     contactName: string | null
     tacticalNote: string | null
+    outreachStatus: string | null
+    outreachChannel: string | null
+    firstContactedAt: string | Date | null
+    lastContactedAt: string | Date | null
+    nextFollowUpDue: string | Date | null
+    outreachNotes: string | null
     createdAt: string
 }
 
@@ -146,7 +155,9 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                     (lead.contactName || "").toLowerCase().includes(s) ||
                     (lead.category || "").toLowerCase().includes(s) ||
                     (lead.address || "").toLowerCase().includes(s) ||
-                    (lead.tacticalNote || "").toLowerCase().includes(s)
+                    (lead.tacticalNote || "").toLowerCase().includes(s) ||
+                    (lead.outreachNotes || "").toLowerCase().includes(s) ||
+                    (lead.outreachStatus || "").toLowerCase().includes(s)
                 if (!matchesSearch) return false
             }
 
@@ -314,6 +325,10 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
 
     const selectAllExportCols = () => setExportColumns(Object.fromEntries(EXPORT_COLUMNS.map(c => [c.key, true])))
     const deselectAllExportCols = () => setExportColumns(Object.fromEntries(EXPORT_COLUMNS.map(c => [c.key, false])))
+
+    const handleOutreachSaved = useCallback((updatedLead: Partial<Lead> & { id: number }) => {
+        setLeads(prev => prev.map(lead => lead.id === updatedLead.id ? { ...lead, ...updatedLead } : lead))
+    }, [])
 
     // Filter pill component
     const FilterPill = ({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) => (
@@ -836,7 +851,12 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                                         onClick={() => setExpandedId(expandedId === lead.id ? null : lead.id)}
                                     >
                                         <TableCell className="font-medium text-white">
-                                            <span className="text-sm">{lead.businessName}</span>
+                                            <div className="min-w-0 space-y-1">
+                                                <span className="block text-sm">{lead.businessName}</span>
+                                                {isContactedOutreachStatus(lead.outreachStatus) && (
+                                                    <OutreachStatusBadge status={lead.outreachStatus} />
+                                                )}
+                                            </div>
                                         </TableCell>
                                         <TableCell>
                                             <span className="text-[10px] text-purple-400/80 font-mono">{lead.niche}</span>
@@ -880,6 +900,14 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                                         <TableCell>
                                             <div className="flex items-center gap-1">
                                                 <ChevronDown className={`w-4 h-4 text-zinc-600 transition-transform duration-200 ${expandedId === lead.id ? "rotate-180" : ""}`} />
+                                                <OutreachEditorSheet
+                                                    lead={lead}
+                                                    onSaved={handleOutreachSaved}
+                                                    buttonLabel="Outreach"
+                                                    buttonVariant="ghost"
+                                                    buttonSize="sm"
+                                                    buttonClassName="h-7 px-2 text-zinc-700 hover:bg-cyan-500/10 hover:text-cyan-300"
+                                                />
                                                 <Button
                                                     variant="ghost"
                                                     size="sm"
@@ -971,6 +999,40 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                                                         >
                                                             {lead.tacticalNote || "No intelligence generated."}
                                                         </p>
+                                                        {isContactedOutreachStatus(lead.outreachStatus) && (
+                                                            <div className="mt-3 rounded-lg border border-cyan-500/10 bg-cyan-500/5 p-3 space-y-2">
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <span className="text-[10px] uppercase tracking-widest text-cyan-300/70">Outreach</span>
+                                                                    <OutreachStatusBadge status={lead.outreachStatus} />
+                                                                </div>
+                                                                <div className="grid grid-cols-1 gap-2 text-[11px] text-zinc-400">
+                                                                    <div className="flex items-center justify-between gap-3">
+                                                                        <span>Channel</span>
+                                                                        <span className="text-zinc-200">{getOutreachChannelLabel(lead.outreachChannel)}</span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between gap-3">
+                                                                        <span>First Contact</span>
+                                                                        <span className="text-zinc-200">{formatOutreachDate(lead.firstContactedAt, true)}</span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between gap-3">
+                                                                        <span>Last Contact</span>
+                                                                        <span className="text-zinc-200">{formatOutreachDate(lead.lastContactedAt, true)}</span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between gap-3">
+                                                                        <span>Follow-Up Due</span>
+                                                                        <span className="text-zinc-200">{formatOutreachDate(lead.nextFollowUpDue)}</span>
+                                                                    </div>
+                                                                </div>
+                                                                {lead.outreachNotes && (
+                                                                    <p
+                                                                        className="text-[11px] leading-relaxed text-zinc-300"
+                                                                        style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+                                                                    >
+                                                                        {lead.outreachNotes}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </TableCell>

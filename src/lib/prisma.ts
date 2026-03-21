@@ -76,6 +76,12 @@ export type LeadRecord = {
   phoneFlags: string | null;
   disqualifiers: string | null;
   disqualifyReason: string | null;
+  outreachStatus: string | null;
+  outreachChannel: string | null;
+  firstContactedAt: Date | null;
+  lastContactedAt: Date | null;
+  nextFollowUpDue: Date | null;
+  outreachNotes: string | null;
   source: string | null;
   isArchived: boolean;
   createdAt: Date;
@@ -229,12 +235,18 @@ const leadTable: TableSpec<LeadRecord> = {
     "phoneFlags",
     "disqualifiers",
     "disqualifyReason",
+    "outreachStatus",
+    "outreachChannel",
+    "firstContactedAt",
+    "lastContactedAt",
+    "nextFollowUpDue",
+    "outreachNotes",
     "source",
     "isArchived",
     "createdAt",
     "lastUpdated",
   ],
-  dateFields: new Set(["createdAt", "lastUpdated"]),
+  dateFields: new Set(["createdAt", "lastUpdated", "firstContactedAt", "lastContactedAt", "nextFollowUpDue"]),
   idField: "id",
   integerFields: new Set(["id", "reviewCount", "leadScore", "axiomScore"]),
   stringFields: new Set([
@@ -265,6 +277,9 @@ const leadTable: TableSpec<LeadRecord> = {
     "phoneFlags",
     "disqualifiers",
     "disqualifyReason",
+    "outreachStatus",
+    "outreachChannel",
+    "outreachNotes",
     "source",
   ]),
   tableName: "Lead",
@@ -406,11 +421,18 @@ async function ensureLeadQualityColumns() {
         ["websiteDomain", "TEXT"],
         ["emailFlags", "TEXT"],
         ["phoneFlags", "TEXT"],
+        ["outreachStatus", `TEXT NOT NULL DEFAULT 'NOT_CONTACTED'`],
+        ["outreachChannel", "TEXT"],
+        ["firstContactedAt", "DATETIME"],
+        ["lastContactedAt", "DATETIME"],
+        ["nextFollowUpDue", "DATETIME"],
+        ["outreachNotes", "TEXT"],
       ];
 
       for (const [column, sqlType] of migrations) {
         if (!existing.has(column)) {
           await runStatement(`ALTER TABLE "Lead" ADD COLUMN "${column}" ${sqlType}`);
+          tableColumnsCache.delete("Lead");
         }
       }
     })().catch((error) => {

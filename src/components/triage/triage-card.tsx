@@ -1,5 +1,7 @@
 "use client";
 import { cn } from "@/lib/utils";
+import { OutreachEditorSheet } from "@/components/outreach/outreach-editor-sheet";
+import { OutreachStatusBadge } from "@/components/outreach/outreach-status-badge";
 import { TierBadge } from "@/components/ui/tier-badge";
 import { SignalChip } from "@/components/ui/signal-chip";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -18,6 +20,7 @@ interface TriageLead {
     websiteStatus: string | null;
     phone: string | null;
     email: string | null;
+    contactName: string | null;
     emailType: string | null;
     emailConfidence: number | null;
     phoneConfidence: number | null;
@@ -32,6 +35,12 @@ interface TriageLead {
     source: string | null;
     rating: number | null;
     reviewCount: number | null;
+    outreachStatus: string | null;
+    outreachChannel: string | null;
+    firstContactedAt: string | Date | null;
+    lastContactedAt: string | Date | null;
+    nextFollowUpDue: string | Date | null;
+    outreachNotes: string | null;
 }
 
 function parseJSON<T>(raw: string | null, fallback: T): T {
@@ -50,7 +59,15 @@ function MiniBar({ value, color }: { value: number; color: string }) {
     );
 }
 
-export function TriageCard({ lead, className }: { lead: TriageLead; className?: string }) {
+export function TriageCard({
+    lead,
+    className,
+    onOutreachSaved,
+}: {
+    lead: TriageLead;
+    className?: string;
+    onOutreachSaved: (updatedLead: TriageLead) => void;
+}) {
     const tierConfig = getTierConfig(lead.axiomTier);
     const painSignals = parseJSON<any[]>(lead.painSignals, []);
     const assessment = parseJSON<any>(lead.axiomWebsiteAssessment, null);
@@ -93,11 +110,22 @@ export function TriageCard({ lead, className }: { lead: TriageLead; className?: 
                             {lead.websiteStatus === "MISSING" ? "No Site" : "Has Site"}
                         </span>
                     )}
+                    {lead.outreachStatus && lead.outreachStatus !== "NOT_CONTACTED" && (
+                        <OutreachStatusBadge status={lead.outreachStatus} />
+                    )}
                     {lead.isArchived && (
                         <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono bg-zinc-400/10 text-zinc-400 border border-zinc-400/20">
                             <Archive className="w-3 h-3" /> Archived
                         </span>
                     )}
+                    <OutreachEditorSheet
+                        lead={lead}
+                        onSaved={(updatedLead) => onOutreachSaved({ ...lead, ...updatedLead })}
+                        buttonLabel="Outreach"
+                        buttonVariant="ghost"
+                        buttonSize="sm"
+                        buttonClassName="border border-cyan-500/20 bg-cyan-500/5 text-cyan-300 hover:bg-cyan-500/10"
+                    />
                 </div>
             </div>
 

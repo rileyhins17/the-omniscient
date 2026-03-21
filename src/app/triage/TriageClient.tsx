@@ -196,6 +196,10 @@ function TriageInner() {
         toast("Session reset", { type: "info" });
     }, [toast]);
 
+    const handleOutreachSaved = useCallback((updatedLead: TriageLead) => {
+        setLeads(prev => prev.map(lead => lead.id === updatedLead.id ? { ...lead, ...updatedLead } : lead));
+    }, []);
+
     // Keyboard shortcuts
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
@@ -346,7 +350,7 @@ function TriageInner() {
                 ) : (
                     /* Lead card */
                     <div className="w-full animate-slide-up" key={currentLead?.id}>
-                        {currentLead && <TriageCard lead={currentLead} />}
+                        {currentLead && <TriageCard lead={currentLead} onOutreachSaved={handleOutreachSaved} />}
                     </div>
                 )}
             </div>

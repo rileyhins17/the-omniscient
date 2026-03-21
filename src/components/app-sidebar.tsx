@@ -1,6 +1,6 @@
 "use client"
 import * as React from "react"
-import { Target, Database, Settings, Zap, LayoutDashboard, Activity } from "lucide-react"
+import { Target, Database, Settings, Zap, LayoutDashboard, MessageSquareText } from "lucide-react"
 import type { Route } from "next"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -25,35 +25,42 @@ const navItems = [
         url: "/dashboard",
         icon: LayoutDashboard,
         description: "Command center overview",
-        shortcut: "⌘1",
+        shortcut: "Cmd+1",
     },
     {
         title: "The Hunt",
         url: "/hunt",
         icon: Target,
         description: "Extract & enrich leads",
-        shortcut: "⌘2",
+        shortcut: "Cmd+2",
     },
     {
         title: "The Vault",
         url: "/vault",
         icon: Database,
         description: "Browse lead database",
-        shortcut: "⌘3",
+        shortcut: "Cmd+3",
     },
     {
         title: "Triage",
         url: "/triage",
         icon: Zap,
         description: "Speed triage leads",
-        shortcut: "⌘5",
+        shortcut: "Cmd+5",
+    },
+    {
+        title: "Outreach",
+        url: "/outreach",
+        icon: MessageSquareText,
+        description: "Manage contacted leads",
+        shortcut: "Cmd+6",
     },
     {
         title: "Settings",
         url: "/settings",
         icon: Settings,
         description: "Configure engine",
-        shortcut: "⌘4",
+        shortcut: "Cmd+4",
     },
 ]
 
@@ -149,7 +156,6 @@ export function AppSidebar() {
             <SidebarFooter className="p-4">
                 <SidebarSeparator className="mb-3 opacity-20" />
 
-                {/* Quick Stats */}
                 <div className="glass-strong rounded-lg p-3 space-y-2.5">
                     <div className="flex items-center justify-between">
                         <span className="text-[9px] uppercase tracking-widest text-muted-foreground/50">Database</span>
