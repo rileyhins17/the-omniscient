@@ -52,3 +52,29 @@ test("checkDisqualifiers still blocks low ROI businesses", () => {
   assert.ok(result.primaryReason);
 });
 
+test("checkDisqualifiers keeps a strong med spa qualified even with a weak website grade", () => {
+  const result = checkDisqualifiers({
+    businessName: "Seema's Laser Spa & Salon",
+    niche: "Med-Spas",
+    category: "Laser spa",
+    city: "Guelph",
+    rating: 4.7,
+    reviewCount: 240,
+    websiteStatus: "ACTIVE",
+    websiteContent: "Locally owned med spa serving Guelph with a booking form and service pages.",
+    assessment: {
+      speedRisk: 4,
+      conversionRisk: 4,
+      trustRisk: 3,
+      seoRisk: 4,
+      overallGrade: "D",
+      topFixes: [],
+    },
+    painSignals: [],
+    axiomScore: 85,
+    tier: "S",
+  });
+
+  assert.equal(result.disqualified, false);
+  assert.equal(result.reasons.length, 0);
+});
