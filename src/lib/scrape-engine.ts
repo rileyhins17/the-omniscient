@@ -1408,8 +1408,11 @@ export async function executeScrapeJob(input: ExecuteScrapeJobInput): Promise<Ex
 
       const grade = assessment ? ` | Grade: ${assessment.overallGrade}` : "";
       const disqualifiedLabel = isArchived ? " | DISQUALIFIED" : "";
+      const disqualifiedReason = isArchived && disqualifyResult.primaryReason
+        ? ` (${disqualifyResult.primaryReason})`
+        : "";
       await input.sendEvent({
-        message: `[SCORE] ${scoreResult.axiomScore}/100 [${scoreResult.tier}]${grade}${disqualifiedLabel} - ${target.businessName}`,
+        message: `[SCORE] ${scoreResult.axiomScore}/100 [${scoreResult.tier}]${grade}${disqualifiedLabel}${disqualifiedReason} - ${target.businessName}`,
         progress: index + 1,
         stats: { leadsFound, withEmail },
         total: targets.length,

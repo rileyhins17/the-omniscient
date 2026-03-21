@@ -68,6 +68,8 @@ const callSheetColumns: CsvColumnDef[] = [
     { key: "opener_short", header: "Call Opener (Short)", resolve: (l: Lead) => truncateString(l.callOpener, 180) },
     { key: "followup_short", header: "Follow-Up (Short)", resolve: (l: Lead) => truncateString(l.followUpQuestion, 120) },
     { key: "website_grade", header: "Website Grade", resolve: (l: Lead) => l.websiteGrade || "" },
+    { key: "disqualify_reason", header: "Disqualify Reason", resolve: (l: Lead) => l.disqualifyReason || "" },
+    { key: "disqualifiers", header: "Disqualifiers", resolve: (l: Lead) => (parseJsonSafe(l.disqualifiers, []) || []).join("; ") },
     {
         key: "top_fix_1",
         header: "Top Fix 1",

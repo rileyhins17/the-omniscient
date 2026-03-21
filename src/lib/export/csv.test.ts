@@ -11,8 +11,9 @@ test("CSV Exporter Tests", async (t) => {
             "Tier", "Axiom Score", "Company", "Niche", "Category", "City", "Contact Name", "Phone", "Email",
             "Contact Quality", "Email Type", "Email Confidence", "Email Flags", "Phone Confidence", "Phone Flags",
             "Website Status", "Website URL", "Website Domain", "Social Link", "Pain Summary", "Pain 1", "Pain 2",
-            "Pain 3", "Call Opener (Short)", "Follow-Up (Short)", "Website Grade", "Top Fix 1", "Top Fix 2",
-            "Top Fix 3", "Call Opener (Full)", "Follow-Up (Full)", "Source", "Last Updated", "Lead ID"
+            "Pain 3", "Call Opener (Short)", "Follow-Up (Short)", "Website Grade", "Disqualify Reason",
+            "Disqualifiers", "Top Fix 1", "Top Fix 2", "Top Fix 3", "Call Opener (Full)", "Follow-Up (Full)",
+            "Source", "Last Updated", "Lead ID"
         ];
 
         assert.deepEqual(
