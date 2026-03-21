@@ -4,14 +4,12 @@ import { useCallback, useMemo, useState } from "react";
 import { CalendarClock, Filter, Search } from "lucide-react";
 
 import { OutreachEditorSheet, type OutreachEditableLead } from "@/components/outreach/outreach-editor-sheet";
-import { OutreachStatusBadge } from "@/components/outreach/outreach-status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast-provider";
 import {
   formatOutreachDate,
-  getOutreachChannelLabel,
   OUTREACH_CHANNEL_OPTIONS,
   OUTREACH_STATUS_OPTIONS,
 } from "@/lib/outreach";
@@ -298,39 +296,33 @@ export function OutreachClient({ initialLeads }: { initialLeads: OutreachEditabl
                     </div>
                   </TableCell>
                   <TableCell className="align-top">
-                    <div className="min-w-[168px] space-y-2">
-                      <OutreachStatusBadge status={lead.outreachStatus} />
-                      <select
-                        value={lead.outreachStatus || "NOT_CONTACTED"}
-                        onChange={(event) => void updateLeadInline(lead, { outreachStatus: event.target.value })}
-                        disabled={savingLeadId === lead.id}
-                        className="h-8 w-full rounded-md border border-white/10 bg-black/40 px-2 text-xs text-white outline-none disabled:opacity-50 focus:border-cyan-500/50"
-                      >
-                        {OUTREACH_STATUS_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <select
+                      value={lead.outreachStatus || "NOT_CONTACTED"}
+                      onChange={(event) => void updateLeadInline(lead, { outreachStatus: event.target.value })}
+                      disabled={savingLeadId === lead.id}
+                      className="h-8 w-full min-w-[142px] rounded-md border border-white/10 bg-black/40 px-2 text-xs text-white outline-none disabled:opacity-50 focus:border-cyan-500/50"
+                    >
+                      {OUTREACH_STATUS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </TableCell>
                   <TableCell className="align-top">
-                    <div className="min-w-[128px] space-y-2">
-                      <div className="text-xs text-zinc-300">{getOutreachChannelLabel(lead.outreachChannel)}</div>
-                      <select
-                        value={lead.outreachChannel || ""}
-                        onChange={(event) => void updateLeadInline(lead, { outreachChannel: event.target.value || null })}
-                        disabled={savingLeadId === lead.id}
-                        className="h-8 w-full rounded-md border border-white/10 bg-black/40 px-2 text-xs text-white outline-none disabled:opacity-50 focus:border-cyan-500/50"
-                      >
-                        <option value="">No channel</option>
-                        {OUTREACH_CHANNEL_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <select
+                      value={lead.outreachChannel || ""}
+                      onChange={(event) => void updateLeadInline(lead, { outreachChannel: event.target.value || null })}
+                      disabled={savingLeadId === lead.id}
+                      className="h-8 w-full min-w-[118px] rounded-md border border-white/10 bg-black/40 px-2 text-xs text-white outline-none disabled:opacity-50 focus:border-cyan-500/50"
+                    >
+                      <option value="">No channel</option>
+                      {OUTREACH_CHANNEL_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                   </TableCell>
                   <TableCell className="align-top text-xs text-zinc-300">
                     {formatOutreachDate(lead.firstContactedAt, true)}
@@ -342,10 +334,7 @@ export function OutreachClient({ initialLeads }: { initialLeads: OutreachEditabl
                     {formatOutreachDate(lead.nextFollowUpDue)}
                   </TableCell>
                   <TableCell className="whitespace-normal align-top">
-                    <div
-                      className="min-w-[240px] max-w-[320px] text-xs leading-relaxed text-zinc-300"
-                      style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
-                    >
+                    <div className="max-w-[260px] truncate text-xs leading-relaxed text-zinc-300" title={lead.outreachNotes || ""}>
                       {notePreview(lead.outreachNotes)}
                     </div>
                   </TableCell>
