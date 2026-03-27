@@ -5,6 +5,7 @@ import type { Route } from "next"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 
+import { BrandMark } from "@/components/brand-mark"
 import {
     Sidebar,
     SidebarContent,
@@ -85,19 +86,18 @@ export function AppSidebar() {
         <Sidebar className="border-r border-white/[0.04]">
             <SidebarHeader className="p-5 pb-3">
                 <div className="flex items-center gap-3">
-                    <div className="relative">
-                        <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 flex items-center justify-center border border-emerald-500/20">
-                            <Zap className="w-5 h-5 text-emerald-400" />
-                        </div>
-                        <div className="absolute inset-0 rounded-lg bg-emerald-400/20 animate-pulse-ring pointer-events-none" />
-                    </div>
+                    <BrandMark
+                        href="/dashboard"
+                        className="w-[168px] shrink-0 px-2 py-1.5"
+                        imageClassName="h-8"
+                    />
                     <div>
-                        <h2 className="text-sm font-bold tracking-widest text-white uppercase">
-                            Omniscient v4
+                        <h2 className="text-sm font-bold tracking-widest text-white uppercase leading-none">
+                            Lead Finder
                         </h2>
-                        <p className="text-[9px] text-emerald-500/80 font-mono tracking-wider flex items-center gap-1">
+                        <p className="text-[9px] text-emerald-500/80 font-mono tracking-wider flex items-center gap-1 mt-1">
                             <span className="w-1 h-1 rounded-full bg-emerald-400 inline-block animate-glow" />
-                            ENGINE v4.0
+                            OMNISCIENT ENGINE
                         </p>
                     </div>
                 </div>
