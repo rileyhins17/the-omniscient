@@ -16,7 +16,24 @@ export async function GET(request: Request) {
       take: 200,
     });
 
-    return NextResponse.json({ emails });
+    const leadIds = Array.from(new Set(emails.map((email) => email.leadId)));
+    const leads = leadIds.length > 0
+      ? await prisma.lead.findMany({
+        where: { id: { in: leadIds } },
+        select: {
+          id: true,
+          businessName: true,
+        },
+      })
+      : [];
+    const leadNames = new Map(leads.map((lead) => [lead.id, lead.businessName]));
+
+    return NextResponse.json({
+      emails: emails.map((email) => ({
+        ...email,
+        businessName: leadNames.get(email.leadId) || `Lead #${email.leadId}`,
+      })),
+    });
   } catch (error: any) {
     console.error("Email log error:", error);
     return NextResponse.json(

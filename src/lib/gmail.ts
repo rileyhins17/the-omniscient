@@ -260,9 +260,14 @@ export async function sendGmailEmail(options: {
   subject: string;
   bodyHtml: string;
   bodyPlain: string;
+  threadId?: string;
 }): Promise<SendEmailResult> {
   const rawMessage = buildRfc2822Message(options);
   const encoded = base64UrlEncode(rawMessage);
+  const payload: Record<string, string> = { raw: encoded };
+  if (options.threadId) {
+    payload.threadId = options.threadId;
+  }
 
   const response = await fetch(GMAIL_SEND_URL, {
     method: "POST",
@@ -270,7 +275,7 @@ export async function sendGmailEmail(options: {
       Authorization: `Bearer ${options.accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ raw: encoded }),
+    body: JSON.stringify(payload),
   });
 
   if (!response.ok) {

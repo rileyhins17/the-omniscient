@@ -4,7 +4,11 @@ import { StatCard } from "@/components/ui/stat-card";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import { OutreachHub } from "@/components/outreach/outreach-hub";
 import { getPrisma } from "@/lib/prisma";
-import { getOutreachHubLeadWhere, OUTREACH_AUTO_INCLUDE_MIN_SCORE } from "@/lib/outreach";
+import {
+  getContactedOutreachLeadWhere,
+  getOutreachPipelineLeadWhere,
+  OUTREACH_AUTO_INCLUDE_MIN_SCORE,
+} from "@/lib/outreach";
 import { requireSession } from "@/lib/session";
 
 export default async function OutreachPage() {
@@ -12,9 +16,9 @@ export default async function OutreachPage() {
 
   const prisma = getPrisma();
 
-  // Fetch the outreach pool: active conversations plus every lead above the auto-include score.
+  // Fetch the pipeline: unsent leads above the auto-include score.
   const pipelineLeads = await prisma.lead.findMany({
-    where: getOutreachHubLeadWhere(),
+    where: getOutreachPipelineLeadWhere(),
     orderBy: {
       axiomScore: "desc",
     },
@@ -34,6 +38,18 @@ export default async function OutreachPage() {
       lastContactedAt: true,
       nextFollowUpDue: true,
       outreachNotes: true,
+    },
+  });
+
+  const contactedLeads = await prisma.lead.findMany({
+    where: getContactedOutreachLeadWhere(),
+    orderBy: {
+      lastContactedAt: "desc",
+    },
+    select: {
+      id: true,
+      outreachStatus: true,
+      nextFollowUpDue: true,
     },
   });
 
@@ -78,16 +94,16 @@ export default async function OutreachPage() {
 
   // Stats
   const now = Date.now();
-  const followUpDue = pipelineLeads.filter(
+  const followUpDue = contactedLeads.filter(
     (lead) => lead.nextFollowUpDue && new Date(lead.nextFollowUpDue).getTime() <= now,
   ).length;
-  const openConversations = pipelineLeads.filter(
+  const openConversations = contactedLeads.filter(
     (lead) =>
       lead.outreachStatus === "OUTREACHED" ||
       lead.outreachStatus === "FOLLOW_UP_DUE" ||
       lead.outreachStatus === "REPLIED",
   ).length;
-  const interested = pipelineLeads.filter((lead) => lead.outreachStatus === "INTERESTED").length;
+  const interested = contactedLeads.filter((lead) => lead.outreachStatus === "INTERESTED").length;
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -108,8 +124,8 @@ export default async function OutreachPage() {
           glowClass="glow-cyan"
           icon={<MessageSquareText />}
           iconColor="text-cyan-400"
-          label="Outreach Pool"
-          subtitle={`score > ${OUTREACH_AUTO_INCLUDE_MIN_SCORE} + active threads`}
+          label="Pipeline"
+          subtitle={`score > ${OUTREACH_AUTO_INCLUDE_MIN_SCORE} and unsent`}
           value={pipelineLeads.length}
         />
         <StatCard

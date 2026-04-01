@@ -42,6 +42,7 @@ type OutreachHubProps = {
 export function OutreachHub({ initialPipelineLeads, initialEnrichedLeads }: OutreachHubProps) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<Tab>("pipeline");
+  const [pipelineLeads, setPipelineLeads] = useState<OutreachEditableLead[]>(initialPipelineLeads);
   const [enrichedLeads, setEnrichedLeads] = useState<EnrichedLead[]>(initialEnrichedLeads);
   const [gmailConnected, setGmailConnected] = useState(false);
   const [sendingLeadIds, setSendingLeadIds] = useState<number[] | null>(null);
@@ -66,6 +67,18 @@ export function OutreachHub({ initialPipelineLeads, initialEnrichedLeads }: Outr
       }
     } catch {
       // Silently fail — the page will show stale data
+    }
+  }, []);
+
+  const refreshPipelineLeads = useCallback(async () => {
+    try {
+      const res = await fetch("/api/outreach/pipeline");
+      if (res.ok) {
+        const data = await res.json();
+        setPipelineLeads(data.leads || []);
+      }
+    } catch {
+      // Silently fail â€” the page will show stale data
     }
   }, []);
 
@@ -106,10 +119,14 @@ export function OutreachHub({ initialPipelineLeads, initialEnrichedLeads }: Outr
     setSendingLeadIds(leadIds);
   }, []);
 
-  const handleSendComplete = useCallback(() => {
+  const handleSendComplete = useCallback((sentLeadIds: number[]) => {
     setSendingLeadIds(null);
-    refreshEnrichedLeads();
-  }, [refreshEnrichedLeads]);
+    if (sentLeadIds.length > 0) {
+      setPipelineLeads((prev) => prev.filter((lead) => !sentLeadIds.includes(lead.id)));
+    }
+    void refreshEnrichedLeads();
+    void refreshPipelineLeads();
+  }, [refreshEnrichedLeads, refreshPipelineLeads]);
 
   return (
     <div className="space-y-4">
@@ -153,7 +170,7 @@ export function OutreachHub({ initialPipelineLeads, initialEnrichedLeads }: Outr
       <div className="rounded-xl border border-white/[0.06] bg-black/20 p-4 shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
         {activeTab === "pipeline" && (
           <OutreachClient
-            initialLeads={initialPipelineLeads}
+            initialLeads={pipelineLeads}
             enableSelection
             onEnrichRequested={handleEnrichFromPipeline}
           />

@@ -16,7 +16,7 @@ type SendResult = {
 type EmailComposerProps = {
   leadIds: number[];
   onClose: () => void;
-  onComplete: () => void;
+  onComplete: (sentLeadIds: number[]) => void;
 };
 
 export function EmailComposer({ leadIds, onClose, onComplete }: EmailComposerProps) {
@@ -78,7 +78,10 @@ export function EmailComposer({ leadIds, onClose, onComplete }: EmailComposerPro
           </div>
           {phase !== "sending" && (
             <button
-              onClick={phase === "done" ? () => { onComplete(); onClose(); } : onClose}
+              onClick={phase === "done" ? () => {
+                onComplete(results.filter((r) => r.status === "sent").map((r) => r.leadId));
+                onClose();
+              } : onClose}
               className="rounded-lg p-1 text-zinc-600 transition-colors hover:bg-white/5 hover:text-white"
             >
               <X className="h-5 w-5" />
@@ -214,7 +217,10 @@ export function EmailComposer({ leadIds, onClose, onComplete }: EmailComposerPro
           )}
           {phase === "done" && (
             <Button
-              onClick={() => { onComplete(); onClose(); }}
+              onClick={() => {
+                onComplete(results.filter((r) => r.status === "sent").map((r) => r.leadId));
+                onClose();
+              }}
               className="gap-1.5 bg-gradient-to-r from-emerald-600 to-cyan-600 font-bold text-white hover:from-emerald-500 hover:to-cyan-500"
             >
               <CheckCircle2 className="h-3.5 w-3.5" />

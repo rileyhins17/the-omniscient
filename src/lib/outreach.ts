@@ -58,12 +58,23 @@ export function isLeadAutoIncludedInOutreachHub(score: number | null | undefined
   return typeof score === "number" && Number.isFinite(score) && score > OUTREACH_AUTO_INCLUDE_MIN_SCORE;
 }
 
-export function getOutreachHubLeadWhere() {
+export function getOutreachPipelineLeadWhere() {
   return {
-    OR: [
-      { outreachStatus: { not: "NOT_CONTACTED" } },
+    AND: [
       { axiomScore: { gt: OUTREACH_AUTO_INCLUDE_MIN_SCORE } },
+      {
+        OR: [
+          { outreachStatus: "NOT_CONTACTED" },
+          { outreachStatus: null },
+        ],
+      },
     ],
+  };
+}
+
+export function getContactedOutreachLeadWhere() {
+  return {
+    outreachStatus: { not: "NOT_CONTACTED" },
   };
 }
 

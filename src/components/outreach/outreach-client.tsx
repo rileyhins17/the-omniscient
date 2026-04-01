@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Brain,
   CalendarClock,
@@ -71,6 +71,10 @@ export function OutreachClient({ initialLeads, enableSelection = false, onEnrich
     () => [...new Set(leads.map((lead) => lead.niche).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
     [leads],
   );
+
+  useEffect(() => {
+    setLeads(initialLeads);
+  }, [initialLeads]);
 
   const filteredLeads = useMemo(() => {
     const now = Date.now();
@@ -151,7 +155,9 @@ export function OutreachClient({ initialLeads, enableSelection = false, onEnrich
         ? prev.map((lead) => (lead.id === updatedLead.id ? { ...lead, ...updatedLead } : lead))
         : [updatedLead, ...prev];
 
-      return next;
+      return updatedLead.outreachStatus === "NOT_CONTACTED" || updatedLead.outreachStatus === null
+        ? next
+        : next.filter((lead) => lead.id !== updatedLead.id);
     });
   }, []);
 

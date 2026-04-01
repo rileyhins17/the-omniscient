@@ -1,13 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, Inbox, Loader2, Mail, Search } from "lucide-react";
+import { ChevronDown, ChevronUp, Inbox, Loader2, Mail, Reply, Search } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/components/ui/toast-provider";
 
 type EmailRecord = {
   id: string;
   leadId: number;
+  businessName: string;
   senderEmail: string;
   recipientEmail: string;
   subject: string;
@@ -19,10 +22,12 @@ type EmailRecord = {
 };
 
 export function EmailLogTable() {
+  const { toast } = useToast();
   const [emails, setEmails] = useState<EmailRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [sendingFollowUpId, setSendingFollowUpId] = useState<string | null>(null);
 
   const fetchEmails = useCallback(async () => {
     try {
@@ -47,11 +52,39 @@ export function EmailLogTable() {
     const q = search.toLowerCase();
     return emails.filter(
       (e) =>
+        e.businessName.toLowerCase().includes(q) ||
         e.recipientEmail.toLowerCase().includes(q) ||
         e.subject.toLowerCase().includes(q) ||
         e.senderEmail.toLowerCase().includes(q),
     );
   }, [emails, search]);
+
+  const handleFollowUp = useCallback(async (emailId: string) => {
+    setSendingFollowUpId(emailId);
+    try {
+      const res = await fetch(`/api/outreach/emails/${emailId}/follow-up`, {
+        method: "POST",
+      });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to send follow-up");
+      }
+
+      toast(`Follow-up sent to ${data?.email?.businessName || "lead"}`, {
+        type: "success",
+        icon: "note",
+      });
+      await fetchEmails();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Failed to send follow-up", {
+        type: "error",
+        icon: "note",
+      });
+    } finally {
+      setSendingFollowUpId(null);
+    }
+  }, [fetchEmails, toast]);
 
   if (loading) {
     return (
@@ -86,28 +119,35 @@ export function EmailLogTable() {
       </div>
 
       <div className="rounded-lg border border-white/[0.06] bg-black/20">
-        <div className="grid grid-cols-[1fr_1fr_auto_auto] gap-4 border-b border-white/[0.06] bg-black/40 px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-          <span>Recipient</span>
+        <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_auto_auto_auto] gap-4 border-b border-white/[0.06] bg-black/40 px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-zinc-500">
+          <span>Lead</span>
           <span>Subject</span>
           <span>Status</span>
           <span>Sent</span>
+          <span>Action</span>
         </div>
 
         <div className="divide-y divide-white/[0.04]">
           {filtered.map((email) => {
             const isExpanded = expandedId === email.id;
+            const isSendingFollowUp = sendingFollowUpId === email.id;
 
             return (
               <div key={email.id}>
-                <button
-                  onClick={() => setExpandedId(isExpanded ? null : email.id)}
-                  className="grid w-full grid-cols-[1fr_1fr_auto_auto] items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-white/[0.02]"
+                <div
+                  className="grid grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_auto_auto_auto] items-center gap-4 px-4 py-3 transition-colors hover:bg-white/[0.02]"
                 >
                   <div className="min-w-0">
-                    <div className="truncate font-mono text-xs text-cyan-300">{email.recipientEmail}</div>
+                    <div className="truncate text-xs font-semibold text-white">{email.businessName}</div>
+                    <div className="truncate font-mono text-[11px] text-cyan-300">{email.recipientEmail}</div>
                     <div className="truncate text-[10px] text-zinc-600">from {email.senderEmail}</div>
                   </div>
-                  <div className="truncate text-xs text-zinc-300">{email.subject}</div>
+                  <button
+                    onClick={() => setExpandedId(isExpanded ? null : email.id)}
+                    className="truncate text-left text-xs text-zinc-300"
+                  >
+                    {email.subject}
+                  </button>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                       email.status === "sent"
@@ -117,7 +157,10 @@ export function EmailLogTable() {
                   >
                     {email.status}
                   </span>
-                  <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setExpandedId(isExpanded ? null : email.id)}
+                    className="flex items-center gap-2 text-left"
+                  >
                     <span className="text-[11px] text-zinc-500">
                       {new Date(email.sentAt).toLocaleDateString("en-US", {
                         month: "short",
@@ -129,10 +172,23 @@ export function EmailLogTable() {
                     {isExpanded ? (
                       <ChevronUp className="h-3.5 w-3.5 text-zinc-600" />
                     ) : (
-                      <ChevronDown className="h-3.5 w-3.5 text-zinc-600" />
-                    )}
+                        <ChevronDown className="h-3.5 w-3.5 text-zinc-600" />
+                      )}
+                  </button>
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={email.status !== "sent" || isSendingFollowUp}
+                      onClick={() => void handleFollowUp(email.id)}
+                      className="h-8 gap-1.5 border border-cyan-500/20 bg-cyan-500/5 px-2.5 text-[11px] text-cyan-300 hover:bg-cyan-500/10"
+                    >
+                      {isSendingFollowUp ? <Loader2 className="h-3 w-3 animate-spin" /> : <Reply className="h-3 w-3" />}
+                      Send Follow-Up
+                    </Button>
                   </div>
-                </button>
+                </div>
 
                 {isExpanded && (
                   <div className="border-t border-white/[0.04] bg-white/[0.01] px-4 py-4">
