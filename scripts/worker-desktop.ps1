@@ -328,6 +328,53 @@ function Test-BackendReady {
     }
 }
 
+function Start-HiddenPowerShell {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ScriptPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$WorkingDirectory,
+
+        [string[]]$Arguments = @()
+    )
+
+    if (-not (Test-Path -LiteralPath $script:configDir)) {
+        New-Item -ItemType Directory -Path $script:configDir -Force | Out-Null
+    }
+
+    $vbsPath = Join-Path $script:configDir "launch-hidden-backend.vbs"
+    $powershellPath = Join-Path $env:WINDIR "System32\WindowsPowerShell\v1.0\powershell.exe"
+    $argList = @(
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-WindowStyle",
+        "Hidden",
+        "-File",
+        $ScriptPath
+    ) + $Arguments
+
+    $escaped = ('"' + $powershellPath + '" ' + (($argList | ForEach-Object {
+        if ($_ -match '\s' -or $_ -match '"') {
+            '"' + ($_ -replace '"', '""') + '"'
+        } else {
+            $_
+        }
+    }) -join ' '))
+
+    $vbs = @"
+Set shell = CreateObject("WScript.Shell")
+shell.CurrentDirectory = "$($WorkingDirectory -replace '"', '""')"
+shell.Run "$($escaped -replace '"', '""')", 0, False
+"@
+    Set-Content -LiteralPath $vbsPath -Value $vbs -Encoding ASCII
+
+    $wscriptPath = Join-Path $env:WINDIR "System32\wscript.exe"
+    Start-Process -FilePath $wscriptPath -ArgumentList @("//B", "//NoLogo", $vbsPath) -WorkingDirectory $WorkingDirectory -WindowStyle Hidden | Out-Null
+}
+
 function Start-BackendIfNeeded {
     if (Test-BackendReady) {
         return
@@ -340,14 +387,7 @@ function Start-BackendIfNeeded {
     $previous = [System.Environment]::GetEnvironmentVariable("WORKER_STUDIO_OPEN_BROWSER", "Process")
     [System.Environment]::SetEnvironmentVariable("WORKER_STUDIO_OPEN_BROWSER", "0", "Process")
     try {
-        Start-Process -FilePath "powershell.exe" -ArgumentList @(
-            "-NoLogo",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            $script:backendLauncher
-        ) -WorkingDirectory $script:repoRoot -WindowStyle Hidden | Out-Null
+        Start-HiddenPowerShell -ScriptPath $script:backendLauncher -WorkingDirectory $script:repoRoot
     } finally {
         [System.Environment]::SetEnvironmentVariable("WORKER_STUDIO_OPEN_BROWSER", $previous, "Process")
     }
@@ -516,7 +556,7 @@ function Update-VisualState {
             $toggleButton.BackColor = [System.Drawing.Color]::FromArgb(22, 84, 63)
             $toggleButton.ForeColor = [System.Drawing.Color]::FromArgb(233, 255, 245)
             $headline.Text = "Worker online."
-            $subtitle.Text = "The local machine is connected to the live control plane."
+            $subtitle.Text = "Connected to operations.getaxiom.ca."
         }
         "starting" {
             $statusBadge.Text = "STARTING"
@@ -526,7 +566,7 @@ function Update-VisualState {
             $toggleButton.BackColor = [System.Drawing.Color]::FromArgb(74, 62, 18)
             $toggleButton.ForeColor = [System.Drawing.Color]::FromArgb(255, 239, 198)
             $headline.Text = "Starting worker."
-            $subtitle.Text = "Keep this window open while the backend spins up."
+            $subtitle.Text = "The backend is spinning up now."
         }
         "stopping" {
             $statusBadge.Text = "STOPPING"
@@ -640,8 +680,8 @@ function Invoke-WorkerAction {
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "Axiom Worker"
 $form.StartPosition = "CenterScreen"
-$form.ClientSize = New-Object System.Drawing.Size(920, 580)
-$form.MinimumSize = New-Object System.Drawing.Size(860, 540)
+$form.ClientSize = New-Object System.Drawing.Size(1040, 700)
+$form.MinimumSize = New-Object System.Drawing.Size(980, 640)
 $form.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 $form.BackColor = [System.Drawing.Color]::FromArgb(7, 10, 14)
 $form.ForeColor = [System.Drawing.Color]::FromArgb(240, 244, 248)
@@ -679,9 +719,9 @@ if ($script:launcherIconPath) {
 
 $top = New-Object System.Windows.Forms.Panel
 $top.Dock = [System.Windows.Forms.DockStyle]::Top
-$top.Height = 96
+$top.Height = 120
 $top.BackColor = [System.Drawing.Color]::FromArgb(11, 15, 20)
-$top.Padding = New-Object System.Windows.Forms.Padding(22, 18, 22, 18)
+$top.Padding = New-Object System.Windows.Forms.Padding(24, 20, 24, 16)
 $form.Controls.Add($top)
 
 $topLine = New-Object System.Windows.Forms.Panel
@@ -691,7 +731,7 @@ $topLine.BackColor = [System.Drawing.Color]::FromArgb(26, 37, 46)
 $top.Controls.Add($topLine)
 
 $logo = New-Object System.Windows.Forms.PictureBox
-$logo.Size = New-Object System.Drawing.Size(150, 44)
+$logo.Size = New-Object System.Drawing.Size(160, 46)
 $logo.Location = New-Object System.Drawing.Point(20, 24)
 $logo.SizeMode = [System.Windows.Forms.PictureBoxSizeMode]::Zoom
 if (Test-Path -LiteralPath $script:logoPath) {
@@ -701,31 +741,39 @@ $script:logoControl = $logo
 $top.Controls.Add($logo)
 
 $titlePanel = New-Object System.Windows.Forms.Panel
-$titlePanel.Location = New-Object System.Drawing.Point(190, 20)
-$titlePanel.Size = New-Object System.Drawing.Size(460, 52)
+$titlePanel.Location = New-Object System.Drawing.Point(198, 18)
+$titlePanel.Size = New-Object System.Drawing.Size(560, 78)
 $titlePanel.BackColor = [System.Drawing.Color]::Transparent
 $top.Controls.Add($titlePanel)
 
 $headline = New-Object System.Windows.Forms.Label
 $headline.AutoSize = $true
 $headline.Location = New-Object System.Drawing.Point(0, 0)
-$headline.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 18, [System.Drawing.FontStyle]::Bold)
+$headline.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 21, [System.Drawing.FontStyle]::Bold)
 $headline.Text = "Worker ready."
 $titlePanel.Controls.Add($headline)
 
 $subtitle = New-Object System.Windows.Forms.Label
 $subtitle.AutoSize = $true
-$subtitle.Location = New-Object System.Drawing.Point(2, 29)
+$subtitle.Location = New-Object System.Drawing.Point(2, 34)
 $subtitle.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 $subtitle.ForeColor = [System.Drawing.Color]::FromArgb(150, 162, 173)
 $subtitle.Text = "Control the local worker from a clean desktop panel."
 $titlePanel.Controls.Add($subtitle)
 
+$modeLabel = New-Object System.Windows.Forms.Label
+$modeLabel.AutoSize = $true
+$modeLabel.Location = New-Object System.Drawing.Point(2, 57)
+$modeLabel.Font = New-Object System.Drawing.Font("Segoe UI", 8.5)
+$modeLabel.ForeColor = [System.Drawing.Color]::FromArgb(124, 138, 150)
+$modeLabel.Text = "Cloudflare worker  ·  Desktop launcher  ·  Local machine"
+$titlePanel.Controls.Add($modeLabel)
+
 $statusBadge = New-Object System.Windows.Forms.Label
 $statusBadge.AutoSize = $false
 $statusBadge.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
 $statusBadge.Size = New-Object System.Drawing.Size(118, 34)
-$statusBadge.Location = New-Object System.Drawing.Point(770, 31)
+$statusBadge.Location = New-Object System.Drawing.Point(892, 34)
 $statusBadge.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 9)
 $statusBadge.Text = "IDLE"
 $statusBadge.BackColor = [System.Drawing.Color]::FromArgb(54, 54, 54)
@@ -735,23 +783,23 @@ $top.Controls.Add($statusBadge)
 
 $body = New-Object System.Windows.Forms.Panel
 $body.Dock = [System.Windows.Forms.DockStyle]::Fill
-$body.Padding = New-Object System.Windows.Forms.Padding(22, 18, 22, 18)
+$body.Padding = New-Object System.Windows.Forms.Padding(24, 20, 24, 24)
 $form.Controls.Add($body)
 
 $workspace = New-Object System.Windows.Forms.TableLayoutPanel
 $workspace.Dock = [System.Windows.Forms.DockStyle]::Fill
 $workspace.ColumnCount = 2
 $workspace.RowCount = 1
-$workspace.Padding = New-Object System.Windows.Forms.Padding(0, 16, 0, 0)
-$workspace.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 58)))
-$workspace.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 42)))
+$workspace.Padding = New-Object System.Windows.Forms.Padding(0, 18, 0, 0)
+$workspace.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 56)))
+$workspace.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 44)))
 $workspace.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Percent, 100)))
 $body.Controls.Add($workspace)
 
 $identityCard = New-Object System.Windows.Forms.Panel
 $identityCard.Dock = [System.Windows.Forms.DockStyle]::Fill
 $identityCard.BackColor = [System.Drawing.Color]::FromArgb(12, 16, 22)
-$identityCard.Padding = New-Object System.Windows.Forms.Padding(20, 18, 20, 18)
+$identityCard.Padding = New-Object System.Windows.Forms.Padding(24, 20, 24, 20)
 $identityCard.Margin = New-Object System.Windows.Forms.Padding(0, 0, 10, 0)
 $workspace.Controls.Add($identityCard, 0, 0)
 
@@ -763,14 +811,14 @@ $identityCard.Controls.Add($identityAccent)
 
 $identityTitle = New-Object System.Windows.Forms.Label
 $identityTitle.AutoSize = $true
-$identityTitle.Location = New-Object System.Drawing.Point(20, 16)
+$identityTitle.Location = New-Object System.Drawing.Point(24, 16)
 $identityTitle.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 11, [System.Drawing.FontStyle]::Bold)
 $identityTitle.Text = "Worker identity"
 $identityCard.Controls.Add($identityTitle)
 
 $workerNameInput = New-Object System.Windows.Forms.TextBox
-$workerNameInput.Location = New-Object System.Drawing.Point(20, 48)
-$workerNameInput.Size = New-Object System.Drawing.Size(250, 30)
+$workerNameInput.Location = New-Object System.Drawing.Point(24, 48)
+$workerNameInput.Size = New-Object System.Drawing.Size(302, 30)
 $workerNameInput.BackColor = [System.Drawing.Color]::FromArgb(18, 24, 31)
 $workerNameInput.ForeColor = [System.Drawing.Color]::FromArgb(240, 244, 248)
 $workerNameInput.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
@@ -783,8 +831,8 @@ if (-not [string]::IsNullOrWhiteSpace([string]$storedWorkerName)) {
 $identityCard.Controls.Add($workerNameInput)
 
 $saveNameButton = New-Object System.Windows.Forms.Button
-$saveNameButton.Size = New-Object System.Drawing.Size(112, 32)
-$saveNameButton.Location = New-Object System.Drawing.Point(282, 47)
+$saveNameButton.Size = New-Object System.Drawing.Size(120, 32)
+$saveNameButton.Location = New-Object System.Drawing.Point(338, 47)
 $saveNameButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $saveNameButton.FlatAppearance.BorderSize = 1
 $saveNameButton.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(49, 61, 74)
@@ -796,7 +844,7 @@ $identityCard.Controls.Add($saveNameButton)
 
 $repoTitle = New-Object System.Windows.Forms.Label
 $repoTitle.AutoSize = $true
-$repoTitle.Location = New-Object System.Drawing.Point(20, 96)
+$repoTitle.Location = New-Object System.Drawing.Point(24, 98)
 $repoTitle.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 9)
 $repoTitle.ForeColor = [System.Drawing.Color]::FromArgb(150, 162, 173)
 $repoTitle.Text = "Repository"
@@ -804,8 +852,8 @@ $identityCard.Controls.Add($repoTitle)
 
 $repoValue = New-Object System.Windows.Forms.Label
 $repoValue.AutoSize = $false
-$repoValue.Location = New-Object System.Drawing.Point(20, 118)
-$repoValue.Size = New-Object System.Drawing.Size(460, 36)
+$repoValue.Location = New-Object System.Drawing.Point(24, 120)
+$repoValue.Size = New-Object System.Drawing.Size(490, 40)
 $repoValue.Font = New-Object System.Drawing.Font("Segoe UI", 9)
 $repoValue.ForeColor = [System.Drawing.Color]::FromArgb(220, 229, 237)
 $repoValue.Text = $script:repoRoot
@@ -813,8 +861,8 @@ $repoValue.AutoEllipsis = $true
 $identityCard.Controls.Add($repoValue)
 
 $changeRepoButton = New-Object System.Windows.Forms.Button
-$changeRepoButton.Size = New-Object System.Drawing.Size(154, 32)
-$changeRepoButton.Location = New-Object System.Drawing.Point(20, 166)
+$changeRepoButton.Size = New-Object System.Drawing.Size(162, 34)
+$changeRepoButton.Location = New-Object System.Drawing.Point(24, 174)
 $changeRepoButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $changeRepoButton.FlatAppearance.BorderSize = 1
 $changeRepoButton.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(49, 61, 74)
@@ -825,8 +873,8 @@ $changeRepoButton.ForeColor = [System.Drawing.Color]::FromArgb(220, 229, 237)
 $identityCard.Controls.Add($changeRepoButton)
 
 $createLauncherButton = New-Object System.Windows.Forms.Button
-$createLauncherButton.Size = New-Object System.Drawing.Size(154, 32)
-$createLauncherButton.Location = New-Object System.Drawing.Point(184, 166)
+$createLauncherButton.Size = New-Object System.Drawing.Size(170, 34)
+$createLauncherButton.Location = New-Object System.Drawing.Point(194, 174)
 $createLauncherButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $createLauncherButton.FlatAppearance.BorderSize = 1
 $createLauncherButton.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(49, 61, 74)
@@ -839,7 +887,7 @@ $identityCard.Controls.Add($createLauncherButton)
 $controlCard = New-Object System.Windows.Forms.Panel
 $controlCard.Dock = [System.Windows.Forms.DockStyle]::Fill
 $controlCard.BackColor = [System.Drawing.Color]::FromArgb(12, 16, 22)
-$controlCard.Padding = New-Object System.Windows.Forms.Padding(20, 18, 20, 18)
+$controlCard.Padding = New-Object System.Windows.Forms.Padding(24, 20, 24, 20)
 $controlCard.Margin = New-Object System.Windows.Forms.Padding(10, 0, 0, 0)
 $workspace.Controls.Add($controlCard, 1, 0)
 
@@ -851,23 +899,23 @@ $controlCard.Controls.Add($controlAccent)
 
 $controlTitle = New-Object System.Windows.Forms.Label
 $controlTitle.AutoSize = $true
-$controlTitle.Location = New-Object System.Drawing.Point(20, 16)
+$controlTitle.Location = New-Object System.Drawing.Point(24, 16)
 $controlTitle.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 11, [System.Drawing.FontStyle]::Bold)
 $controlTitle.Text = "Worker control"
 $controlCard.Controls.Add($controlTitle)
 
 $controlCopy = New-Object System.Windows.Forms.Label
 $controlCopy.AutoSize = $false
-$controlCopy.Location = New-Object System.Drawing.Point(20, 42)
-$controlCopy.Size = New-Object System.Drawing.Size(320, 34)
+$controlCopy.Location = New-Object System.Drawing.Point(24, 42)
+$controlCopy.Size = New-Object System.Drawing.Size(330, 40)
 $controlCopy.ForeColor = [System.Drawing.Color]::FromArgb(150, 162, 173)
 $controlCopy.Font = New-Object System.Drawing.Font("Segoe UI", 9)
-$controlCopy.Text = "Start or stop the local worker from this machine."
+$controlCopy.Text = "Start or stop the worker from this machine."
 $controlCard.Controls.Add($controlCopy)
 
 $toggleButton = New-Object System.Windows.Forms.Button
-$toggleButton.Size = New-Object System.Drawing.Size(242, 56)
-$toggleButton.Location = New-Object System.Drawing.Point(20, 88)
+$toggleButton.Size = New-Object System.Drawing.Size(286, 62)
+$toggleButton.Location = New-Object System.Drawing.Point(24, 94)
 $toggleButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $toggleButton.FlatAppearance.BorderSize = 0
 $toggleButton.Font = New-Object System.Drawing.Font("Segoe UI Semibold", 11, [System.Drawing.FontStyle]::Bold)
@@ -877,8 +925,8 @@ $toggleButton.ForeColor = [System.Drawing.Color]::FromArgb(191, 255, 232)
 $controlCard.Controls.Add($toggleButton)
 
 $openLiveButton = New-Object System.Windows.Forms.Button
-$openLiveButton.Size = New-Object System.Drawing.Size(242, 34)
-$openLiveButton.Location = New-Object System.Drawing.Point(20, 152)
+$openLiveButton.Size = New-Object System.Drawing.Size(286, 36)
+$openLiveButton.Location = New-Object System.Drawing.Point(24, 164)
 $openLiveButton.FlatStyle = [System.Windows.Forms.FlatStyle]::Flat
 $openLiveButton.FlatAppearance.BorderSize = 1
 $openLiveButton.FlatAppearance.BorderColor = [System.Drawing.Color]::FromArgb(49, 61, 74)
@@ -886,6 +934,15 @@ $openLiveButton.BackColor = [System.Drawing.Color]::FromArgb(15, 21, 27)
 $openLiveButton.ForeColor = [System.Drawing.Color]::FromArgb(220, 229, 237)
 $openLiveButton.Text = "Open live hunt"
 $controlCard.Controls.Add($openLiveButton)
+
+$controlHint = New-Object System.Windows.Forms.Label
+$controlHint.AutoSize = $false
+$controlHint.Location = New-Object System.Drawing.Point(24, 214)
+$controlHint.Size = New-Object System.Drawing.Size(300, 34)
+$controlHint.Font = New-Object System.Drawing.Font("Segoe UI", 8.5)
+$controlHint.ForeColor = [System.Drawing.Color]::FromArgb(124, 138, 150)
+$controlHint.Text = "The live hunt stays online while this panel is open."
+$controlCard.Controls.Add($controlHint)
 
 $toggleButton.Add_Click({
     if ($script:actionBusy) {
