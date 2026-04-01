@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { Brain, Inbox, MessageSquareText } from "lucide-react";
+import { Bot, Brain, Inbox, MessageSquareText } from "lucide-react";
 
+import { AutomationPanel } from "@/components/outreach/automation-panel";
 import { EmailComposer } from "@/components/outreach/email-composer";
 import { EmailLogTable } from "@/components/outreach/email-log-table";
 import { EnrichmentPanel } from "@/components/outreach/enrichment-panel";
@@ -11,11 +12,12 @@ import { OutreachClient } from "@/components/outreach/outreach-client";
 import type { OutreachEditableLead } from "@/components/outreach/outreach-editor-sheet";
 import { useToast } from "@/components/ui/toast-provider";
 
-type Tab = "pipeline" | "enriched" | "log";
+type Tab = "pipeline" | "enriched" | "automation" | "log";
 
 const TAB_CONFIG: Array<{ id: Tab; label: string; icon: typeof MessageSquareText }> = [
   { id: "pipeline", label: "Pipeline", icon: MessageSquareText },
   { id: "enriched", label: "Enriched Leads", icon: Brain },
+  { id: "automation", label: "Automation", icon: Bot },
   { id: "log", label: "Email Log", icon: Inbox },
 ];
 
@@ -37,13 +39,85 @@ type EnrichedLead = {
 type OutreachHubProps = {
   initialPipelineLeads: OutreachEditableLead[];
   initialEnrichedLeads: EnrichedLead[];
+  initialAutomationOverview: {
+    settings: {
+      enabled: boolean;
+      globalPaused: boolean;
+      sendWindowStartHour: number;
+      sendWindowStartMinute: number;
+      sendWindowEndHour: number;
+      sendWindowEndMinute: number;
+      initialDelayMinMinutes: number;
+      initialDelayMaxMinutes: number;
+      followUp1BusinessDays: number;
+      followUp2BusinessDays: number;
+      schedulerClaimBatch: number;
+      replySyncStaleMinutes: number;
+    };
+    mailboxes: Array<{
+      id: string;
+      userId: string;
+      gmailAddress: string;
+      label: string | null;
+      status: string;
+      timezone: string;
+      dailyLimit: number;
+      hourlyLimit: number;
+      minDelaySeconds: number;
+      maxDelaySeconds: number;
+      warmupLevel: number;
+      sentToday: number;
+      sentThisHour: number;
+    }>;
+    queued: Array<{
+      id: string;
+      leadId: number;
+      status: string;
+      currentStep: string;
+      nextScheduledAt: string | null;
+      lastSentAt: string | null;
+      stopReason: string | null;
+      lead?: EnrichedLead | null;
+      mailbox?: {
+        id: string;
+        gmailAddress: string;
+        label: string | null;
+        status: string;
+        timezone: string;
+        dailyLimit: number;
+        hourlyLimit: number;
+        minDelaySeconds: number;
+        maxDelaySeconds: number;
+        warmupLevel: number;
+        sentToday: number;
+        sentThisHour: number;
+      } | null;
+      nextStep?: { stepType: string; scheduledFor: string } | null;
+    }>;
+    active: Array<any>;
+    finished: Array<any>;
+    recentRuns: Array<any>;
+    stats: {
+      queued: number;
+      active: number;
+      paused: number;
+      stopped: number;
+      completed: number;
+      replied: number;
+    };
+  };
 };
 
-export function OutreachHub({ initialPipelineLeads, initialEnrichedLeads }: OutreachHubProps) {
+export function OutreachHub({
+  initialPipelineLeads,
+  initialEnrichedLeads,
+  initialAutomationOverview,
+}: OutreachHubProps) {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<Tab>("pipeline");
   const [pipelineLeads, setPipelineLeads] = useState<OutreachEditableLead[]>(initialPipelineLeads);
   const [enrichedLeads, setEnrichedLeads] = useState<EnrichedLead[]>(initialEnrichedLeads);
+  const [automationOverview, setAutomationOverview] = useState(initialAutomationOverview);
   const [gmailConnected, setGmailConnected] = useState(false);
   const [sendingLeadIds, setSendingLeadIds] = useState<number[] | null>(null);
 
@@ -67,6 +141,18 @@ export function OutreachHub({ initialPipelineLeads, initialEnrichedLeads }: Outr
       }
     } catch {
       // Silently fail — the page will show stale data
+    }
+  }, []);
+
+  const refreshAutomationOverview = useCallback(async () => {
+    try {
+      const res = await fetch("/api/outreach/automation/overview");
+      if (res.ok) {
+        const data = await res.json();
+        setAutomationOverview(data);
+      }
+    } catch {
+      // Silently fail
     }
   }, []);
 
@@ -126,7 +212,48 @@ export function OutreachHub({ initialPipelineLeads, initialEnrichedLeads }: Outr
     }
     void refreshEnrichedLeads();
     void refreshPipelineLeads();
-  }, [refreshEnrichedLeads, refreshPipelineLeads]);
+    void refreshAutomationOverview();
+  }, [refreshAutomationOverview, refreshEnrichedLeads, refreshPipelineLeads]);
+
+  const handleQueueRequested = useCallback(
+    async (leadIds: number[]) => {
+      try {
+        const res = await fetch("/api/outreach/automation/queue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ leadIds }),
+        });
+
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(data?.error || "Failed to queue leads for automation");
+        }
+
+        const queued = data?.queued?.length || 0;
+        const skipped = data?.skipped?.length || 0;
+        toast(
+          queued > 0
+            ? `Queued ${queued} lead${queued !== 1 ? "s" : ""}${skipped > 0 ? `, skipped ${skipped}` : ""}`
+            : `No leads were queued${skipped > 0 ? `, skipped ${skipped}` : ""}`,
+          { type: queued > 0 ? "success" : "error", icon: "note" },
+        );
+
+        await refreshAutomationOverview();
+        await refreshPipelineLeads();
+      } catch (error) {
+        toast(error instanceof Error ? error.message : "Failed to queue leads", {
+          type: "error",
+          icon: "note",
+        });
+      }
+    },
+    [refreshAutomationOverview, refreshPipelineLeads, toast],
+  );
+
+  const queuedLeadIds = [
+    ...automationOverview.queued.map((sequence) => sequence.leadId),
+    ...automationOverview.active.map((sequence: { leadId: number }) => sequence.leadId),
+  ];
 
   return (
     <div className="space-y-4">
@@ -150,7 +277,7 @@ export function OutreachHub({ initialPipelineLeads, initialEnrichedLeads }: Outr
             >
               <Icon className={`h-4 w-4 ${
                 isActive
-                  ? tab.id === "pipeline" ? "text-cyan-400" : tab.id === "enriched" ? "text-purple-400" : "text-emerald-400"
+                  ? tab.id === "pipeline" ? "text-cyan-400" : tab.id === "enriched" ? "text-purple-400" : tab.id === "automation" ? "text-blue-400" : "text-emerald-400"
                   : ""
               }`} />
               {tab.label}
@@ -181,7 +308,16 @@ export function OutreachHub({ initialPipelineLeads, initialEnrichedLeads }: Outr
             leads={enrichedLeads}
             gmailConnected={gmailConnected}
             onSendRequested={handleSendRequested}
+            onQueueRequested={handleQueueRequested}
             onLeadsUpdated={refreshEnrichedLeads}
+            queuedLeadIds={queuedLeadIds}
+          />
+        )}
+
+        {activeTab === "automation" && (
+          <AutomationPanel
+            overview={automationOverview}
+            onOverviewUpdated={refreshAutomationOverview}
           />
         )}
 

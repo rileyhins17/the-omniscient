@@ -15,6 +15,8 @@ export type GeneratedEmail = {
   bodyPlain: string;
 };
 
+export type OutreachSequenceStepType = "INITIAL" | "FOLLOW_UP_1" | "FOLLOW_UP_2";
+
 type FollowUpSourceEmail = {
   subject: string;
   bodyPlain: string;
@@ -51,6 +53,7 @@ function buildFollowUpContext(
   enrichment: EnrichmentResult,
   senderName: string,
   previousEmail: FollowUpSourceEmail,
+  stepType: OutreachSequenceStepType = "FOLLOW_UP_1",
 ): string {
   const lines: string[] = [];
 
@@ -64,6 +67,7 @@ function buildFollowUpContext(
   lines.push(`PREVIOUS EMAIL SUBJECT: ${previousEmail.subject}`);
   lines.push(`PREVIOUS EMAIL SENT AT: ${new Date(previousEmail.sentAt).toISOString()}`);
   lines.push(`PREVIOUS EMAIL BODY: ${previousEmail.bodyPlain}`);
+  lines.push(`FOLLOW-UP STEP: ${stepType}`);
   lines.push(``);
   lines.push(`=== ENRICHMENT INTELLIGENCE ===`);
   lines.push(`VALUE PROPOSITION: ${enrichment.valueProposition}`);
@@ -110,13 +114,15 @@ STRICT RULES:
 1. This is a follow-up to a previous cold email. Acknowledge the prior note briefly without sounding robotic.
 2. Keep the email under 90 words.
 3. Maintain the same personalized context from the original outreach and add one fresh, relevant angle.
-4. The tone should be helpful, confident, and low-pressure.
-5. Keep the CTA simple and easy to reply to.
-6. Do NOT repeat the original email verbatim.
-7. Prefer a natural reply-style subject. "Re:" is allowed when it fits.
-8. Do NOT use placeholders.
-9. The plain text version should be a clean version without any HTML.
-10. The HTML version should use simple inline styles and remain lightweight.
+4. FOLLOW_UP_1 should feel like a soft nudge with a new angle.
+5. FOLLOW_UP_2 should feel like a concise final check-in and can politely close the loop.
+6. The tone should be helpful, confident, and low-pressure.
+7. Keep the CTA simple and easy to reply to.
+8. Do NOT repeat the original email verbatim.
+9. Prefer a natural reply-style subject. "Re:" is allowed when it fits.
+10. Do NOT use placeholders.
+11. The plain text version should be a clean version without any HTML.
+12. The HTML version should use simple inline styles and remain lightweight.
 
 Respond with a JSON object:
 {
@@ -148,8 +154,9 @@ export async function generateFollowUpEmail(
   enrichment: EnrichmentResult,
   senderName: string,
   previousEmail: FollowUpSourceEmail,
+  stepType: OutreachSequenceStepType = "FOLLOW_UP_1",
 ): Promise<GeneratedEmail> {
-  const context = buildFollowUpContext(lead, enrichment, senderName, previousEmail);
+  const context = buildFollowUpContext(lead, enrichment, senderName, previousEmail, stepType);
 
   return chatCompletionJson<GeneratedEmail>({
     systemPrompt: FOLLOW_UP_SYSTEM_PROMPT,
@@ -157,4 +164,22 @@ export async function generateFollowUpEmail(
     temperature: 0.65,
     maxTokens: 1024,
   });
+}
+
+export async function generateSequenceStepEmail(
+  lead: LeadRecord,
+  enrichment: EnrichmentResult,
+  senderName: string,
+  stepType: OutreachSequenceStepType,
+  previousEmail?: FollowUpSourceEmail,
+): Promise<GeneratedEmail> {
+  if (stepType === "INITIAL") {
+    return generateEmail(lead, enrichment, senderName);
+  }
+
+  if (!previousEmail) {
+    throw new Error(`Previous email context is required for ${stepType}`);
+  }
+
+  return generateFollowUpEmail(lead, enrichment, senderName, previousEmail, stepType);
 }

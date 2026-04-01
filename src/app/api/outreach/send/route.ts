@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { generateEmail } from "@/lib/outreach-email-generator";
 import { getServerEnv } from "@/lib/env";
 import { getValidAccessToken, sendGmailEmail } from "@/lib/gmail";
+import { getMailboxForManualSend } from "@/lib/outreach-automation";
 import type { EnrichmentResult } from "@/lib/outreach-enrichment";
 import { getPrisma } from "@/lib/prisma";
 import type { LeadRecord } from "@/lib/prisma";
@@ -29,24 +30,21 @@ export async function POST(request: Request) {
 
     const prisma = getPrisma();
 
-    // Get Gmail connection
-    const connection = await prisma.gmailConnection.findUnique({
-      where: { userId: authResult.session.user.id },
-    });
-
-    if (!connection) {
+    const mailboxSelection = await getMailboxForManualSend(authResult.session.user.id);
+    if (!mailboxSelection) {
       return NextResponse.json(
         { error: "Gmail not connected. Please connect your Gmail account first." },
         { status: 400 },
       );
     }
+    const { mailbox, connection } = mailboxSelection;
 
     // Check daily send limit
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const sentToday = await prisma.outreachEmail.count({
       where: {
-        senderUserId: authResult.session.user.id,
+        mailboxId: mailbox.id,
         sentAt: { gte: today },
         status: "sent",
       },
@@ -116,7 +114,7 @@ export async function POST(request: Request) {
 
     if (tokenResult.updated) {
       await prisma.gmailConnection.update({
-        where: { userId: authResult.session.user.id },
+        where: { id: connection.id },
         data: {
           accessToken: tokenResult.updated.accessToken,
           tokenExpiresAt: tokenResult.updated.tokenExpiresAt,
@@ -125,7 +123,7 @@ export async function POST(request: Request) {
     }
 
     // Derive sender name from the session user
-    const senderName = authResult.session.user.name || connection.gmailAddress.split("@")[0];
+    const senderName = mailbox.label || authResult.session.user.name || connection.gmailAddress.split("@")[0];
 
     // Process each lead: generate email → send → log
     const results: Array<{ leadId: number; businessName: string; status: "sent" | "failed"; error?: string }> = [];
@@ -158,6 +156,7 @@ export async function POST(request: Request) {
             leadId: lead.id,
             senderUserId: authResult.session.user.id,
             senderEmail: connection.gmailAddress,
+            mailboxId: mailbox.id,
             recipientEmail: lead.email!,
             subject: email.subject,
             bodyHtml: email.bodyHtml,
@@ -179,6 +178,10 @@ export async function POST(request: Request) {
             lastContactedAt: new Date(),
           },
         });
+        await prisma.outreachMailbox.update({
+          where: { id: mailbox.id },
+          data: { lastSentAt: new Date() },
+        });
 
         results.push({ leadId: lead.id, businessName: lead.businessName, status: "sent" });
       } catch (error: any) {
@@ -192,6 +195,7 @@ export async function POST(request: Request) {
               leadId: lead.id,
               senderUserId: authResult.session.user.id,
               senderEmail: connection.gmailAddress,
+              mailboxId: mailbox.id,
               recipientEmail: lead.email!,
               subject: "(generation failed)",
               bodyHtml: "",

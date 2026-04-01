@@ -11,10 +11,12 @@ const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo";
 const GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
+const GMAIL_THREAD_URL = "https://gmail.googleapis.com/gmail/v1/users/me/threads";
 const GOOGLE_REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.send",
+  "https://www.googleapis.com/auth/gmail.metadata",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
 ].join(" ");
@@ -249,6 +251,21 @@ export type SendEmailResult = {
   threadId: string;
 };
 
+export type GmailThreadMetadata = {
+  id: string;
+  messages: Array<{
+    id: string;
+    threadId: string;
+    internalDate?: string;
+    labelIds?: string[];
+    headers: {
+      from: string;
+      to: string;
+      subject: string;
+    };
+  }>;
+};
+
 /**
  * Send an email via the Gmail REST API.
  */
@@ -287,6 +304,55 @@ export async function sendGmailEmail(options: {
   return {
     messageId: result.id || "",
     threadId: result.threadId || "",
+  };
+}
+
+function getHeaderValue(headers: Array<{ name?: string; value?: string }> | undefined, name: string) {
+  const wanted = name.toLowerCase();
+  return headers?.find((header) => header.name?.toLowerCase() === wanted)?.value || "";
+}
+
+export async function getGmailThreadMetadata(
+  accessToken: string,
+  threadId: string,
+): Promise<GmailThreadMetadata> {
+  const response = await fetch(`${GMAIL_THREAD_URL}/${encodeURIComponent(threadId)}?format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Subject`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to fetch Gmail thread metadata (${response.status}): ${text}`);
+  }
+
+  const payload = (await response.json()) as {
+    id?: string;
+    messages?: Array<{
+      id?: string;
+      threadId?: string;
+      internalDate?: string;
+      labelIds?: string[];
+      payload?: {
+        headers?: Array<{ name?: string; value?: string }>;
+      };
+    }>;
+  };
+
+  return {
+    id: payload.id || threadId,
+    messages: (payload.messages || []).map((message) => ({
+      id: message.id || "",
+      threadId: message.threadId || threadId,
+      internalDate: message.internalDate,
+      labelIds: message.labelIds || [],
+      headers: {
+        from: getHeaderValue(message.payload?.headers, "From"),
+        to: getHeaderValue(message.payload?.headers, "To"),
+        subject: getHeaderValue(message.payload?.headers, "Subject"),
+      },
+    })),
   };
 }
 

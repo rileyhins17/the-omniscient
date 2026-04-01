@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { generateFollowUpEmail } from "@/lib/outreach-email-generator";
 import { getServerEnv } from "@/lib/env";
 import { getValidAccessToken, sendGmailEmail } from "@/lib/gmail";
+import { getMailboxForManualSend } from "@/lib/outreach-automation";
 import { getPrisma } from "@/lib/prisma";
 import type { LeadRecord, OutreachEmailRecord } from "@/lib/prisma";
 import type { EnrichmentResult } from "@/lib/outreach-enrichment";
@@ -39,11 +40,18 @@ export async function POST(
       return NextResponse.json({ error: "Follow-ups can only be sent for delivered emails" }, { status: 400 });
     }
 
-    const connection = await prisma.gmailConnection.findUnique({
-      where: { userId: authResult.session.user.id },
-    });
+    const mailboxSelection = priorEmail.mailboxId
+      ? {
+        mailbox: await prisma.outreachMailbox.findUnique({ where: { id: priorEmail.mailboxId } }),
+        connection: null,
+      }
+      : null;
+    const mailbox = mailboxSelection?.mailbox ?? (await getMailboxForManualSend(authResult.session.user.id))?.mailbox ?? null;
+    const connection = mailbox?.gmailConnectionId
+      ? await prisma.gmailConnection.findUnique({ where: { id: mailbox.gmailConnectionId } })
+      : null;
 
-    if (!connection) {
+    if (!mailbox || !connection) {
       return NextResponse.json(
         { error: "Gmail not connected. Please connect your Gmail account first." },
         { status: 400 },
@@ -54,7 +62,7 @@ export async function POST(
     today.setHours(0, 0, 0, 0);
     const sentToday = await prisma.outreachEmail.count({
       where: {
-        senderUserId: authResult.session.user.id,
+        mailboxId: mailbox.id,
         sentAt: { gte: today },
         status: "sent",
       },
@@ -82,7 +90,7 @@ export async function POST(
     const tokenResult = await getValidAccessToken(connection);
     if (tokenResult.updated) {
       await prisma.gmailConnection.update({
-        where: { userId: authResult.session.user.id },
+        where: { id: connection.id },
         data: {
           accessToken: tokenResult.updated.accessToken,
           tokenExpiresAt: tokenResult.updated.tokenExpiresAt,
@@ -90,7 +98,7 @@ export async function POST(
       });
     }
 
-    const senderName = authResult.session.user.name || connection.gmailAddress.split("@")[0];
+    const senderName = mailbox.label || authResult.session.user.name || connection.gmailAddress.split("@")[0];
     const enrichment = JSON.parse(lead.enrichmentData) as EnrichmentResult;
     const followUp = await generateFollowUpEmail(lead, enrichment, senderName, {
       subject: priorEmail.subject,
@@ -115,6 +123,7 @@ export async function POST(
         leadId: lead.id,
         senderUserId: authResult.session.user.id,
         senderEmail: connection.gmailAddress,
+        mailboxId: mailbox.id,
         recipientEmail: lead.email,
         subject: followUp.subject,
         bodyHtml: followUp.bodyHtml,
@@ -134,6 +143,10 @@ export async function POST(
         firstContactedAt: lead.firstContactedAt || priorEmail.sentAt,
         lastContactedAt: new Date(),
       },
+    });
+    await prisma.outreachMailbox.update({
+      where: { id: mailbox.id },
+      data: { lastSentAt: new Date() },
     });
 
     return NextResponse.json({

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
+  ensureMailboxForConnection,
+} from "@/lib/outreach-automation";
+import {
   encryptToken,
   exchangeCodeForTokens,
   fetchGoogleUserInfo,
@@ -58,15 +61,17 @@ export async function GET(request: NextRequest) {
 
     const prisma = getPrisma();
 
-    // Check if user already has a connection
-    const existing = await prisma.gmailConnection.findUnique({
-      where: { userId: session.user.id },
+    const existing = await prisma.gmailConnection.findFirst({
+      where: {
+        userId: session.user.id,
+        gmailAddress: userInfo.email,
+      },
     });
 
+    let connectionId = existing?.id || crypto.randomUUID();
     if (existing) {
-      // Update existing connection
       await prisma.gmailConnection.update({
-        where: { userId: session.user.id },
+        where: { id: existing.id },
         data: {
           gmailAddress: userInfo.email,
           accessToken: encryptedAccess,
@@ -76,10 +81,9 @@ export async function GET(request: NextRequest) {
         },
       });
     } else {
-      // Create new connection
       await prisma.gmailConnection.create({
         data: {
-          id: crypto.randomUUID(),
+          id: connectionId,
           userId: session.user.id,
           gmailAddress: userInfo.email,
           accessToken: encryptedAccess,
@@ -88,6 +92,17 @@ export async function GET(request: NextRequest) {
           scopes: tokens.scope,
           updatedAt: new Date(),
         },
+      });
+    }
+
+    const connection = await prisma.gmailConnection.findUnique({
+      where: { id: connectionId },
+    });
+
+    if (connection) {
+      await ensureMailboxForConnection(connection, {
+        label: userInfo.name || userInfo.email.split("@")[0],
+        status: "ACTIVE",
       });
     }
 

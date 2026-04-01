@@ -22,7 +22,19 @@ export interface AppBindings {
   [key: string]: unknown;
 }
 
+const globalForBindings = globalThis as {
+  axiomCloudflareBindings?: AppBindings | null;
+};
+
+export function setCloudflareBindings(bindings: AppBindings | null) {
+  globalForBindings.axiomCloudflareBindings = bindings;
+}
+
 export function getCloudflareBindings(): AppBindings | null {
+  if (globalForBindings.axiomCloudflareBindings) {
+    return globalForBindings.axiomCloudflareBindings;
+  }
+
   try {
     // Dynamic import to avoid crash when @opennextjs/cloudflare is not installed
     // eslint-disable-next-line @typescript-eslint/no-require-imports

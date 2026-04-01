@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { listAutomationOverview } from "@/lib/outreach-automation";
 import { getPrisma } from "@/lib/prisma";
 import { requireApiSession } from "@/lib/session";
 
@@ -11,27 +12,34 @@ export async function GET(request: Request) {
 
   try {
     const prisma = getPrisma();
-    const connection = await prisma.gmailConnection.findUnique({
+    const connections = await prisma.gmailConnection.findMany({
       where: { userId: authResult.session.user.id },
+      orderBy: { updatedAt: "desc" },
       select: {
+        id: true,
         gmailAddress: true,
         tokenExpiresAt: true,
         createdAt: true,
         updatedAt: true,
       },
     });
+    const automation = await listAutomationOverview();
+    const mailboxes = automation.mailboxes.filter((mailbox) => mailbox.userId === authResult.session.user.id);
 
-    if (!connection) {
-      return NextResponse.json({ connected: false });
+    if (connections.length === 0) {
+      return NextResponse.json({ connected: false, connections: [], mailboxes: [] });
     }
-
-    const tokenExpired = new Date(connection.tokenExpiresAt).getTime() < Date.now();
 
     return NextResponse.json({
       connected: true,
-      gmailAddress: connection.gmailAddress,
-      tokenHealthy: !tokenExpired,
-      connectedAt: connection.createdAt,
+      gmailAddress: connections[0]?.gmailAddress,
+      tokenHealthy: connections.some((connection) => new Date(connection.tokenExpiresAt).getTime() >= Date.now()),
+      connectedAt: connections[0]?.createdAt,
+      connections: connections.map((connection) => ({
+        ...connection,
+        tokenHealthy: new Date(connection.tokenExpiresAt).getTime() >= Date.now(),
+      })),
+      mailboxes,
     });
   } catch (error: any) {
     console.error("Gmail status error:", error);

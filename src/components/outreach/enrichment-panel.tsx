@@ -39,7 +39,9 @@ type EnrichmentPanelProps = {
   leads: EnrichedLead[];
   gmailConnected: boolean;
   onSendRequested: (leadIds: number[]) => void;
+  onQueueRequested: (leadIds: number[]) => Promise<void>;
   onLeadsUpdated: () => void;
+  queuedLeadIds: number[];
 };
 
 function parseEnrichment(data: string | null): EnrichmentResult | null {
@@ -57,12 +59,21 @@ const TONE_COLORS: Record<string, string> = {
   urgent: "text-red-400 bg-red-500/10 border-red-500/20",
 };
 
-export function EnrichmentPanel({ leads, gmailConnected, onSendRequested, onLeadsUpdated }: EnrichmentPanelProps) {
+export function EnrichmentPanel({
+  leads,
+  gmailConnected,
+  onSendRequested,
+  onQueueRequested,
+  onLeadsUpdated,
+  queuedLeadIds,
+}: EnrichmentPanelProps) {
   const { toast } = useToast();
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [enriching, setEnriching] = useState<Set<number>>(new Set());
+  const [queueing, setQueueing] = useState(false);
+  const queuedSet = useMemo(() => new Set(queuedLeadIds), [queuedLeadIds]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return leads;
@@ -138,6 +149,21 @@ export function EnrichmentPanel({ leads, gmailConnected, onSendRequested, onLead
     onSendRequested(ids);
   };
 
+  const handleQueueSelected = async () => {
+    const ids = Array.from(selectedIds).filter((id) => !queuedSet.has(id));
+    if (ids.length === 0) {
+      toast("Selected leads are already queued", { type: "success", icon: "note" });
+      return;
+    }
+    setQueueing(true);
+    try {
+      await onQueueRequested(ids);
+      setSelectedIds(new Set());
+    } finally {
+      setQueueing(false);
+    }
+  };
+
   if (leads.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center rounded-xl border border-white/[0.06] bg-black/20 px-6 py-16 text-center">
@@ -184,6 +210,15 @@ export function EnrichmentPanel({ leads, gmailConnected, onSendRequested, onLead
               >
                 <RefreshCw className={`h-3 w-3 ${enriching.size > 0 ? "animate-spin" : ""}`} />
                 Re-Enrich ({selectedIds.size})
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void handleQueueSelected()}
+                disabled={!gmailConnected || queueing}
+                className="gap-1.5 bg-gradient-to-r from-cyan-700 to-blue-600 text-xs font-bold text-white shadow-lg shadow-cyan-500/20 hover:from-cyan-600 hover:to-blue-500 disabled:opacity-50"
+              >
+                {queueing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                Queue Automation ({Array.from(selectedIds).filter((id) => !queuedSet.has(id)).length})
               </Button>
               <Button
                 size="sm"
@@ -242,6 +277,9 @@ export function EnrichmentPanel({ leads, gmailConnected, onSendRequested, onLead
                     )}
                     {lead.outreachStatus === "OUTREACHED" && (
                       <span className="rounded px-1.5 py-0.5 text-[9px] bg-cyan-500/20 text-cyan-300">Sent</span>
+                    )}
+                    {queuedSet.has(lead.id) && (
+                      <span className="rounded px-1.5 py-0.5 text-[9px] bg-blue-500/20 text-blue-300">Queued</span>
                     )}
                   </div>
                   <div className="flex items-center gap-2 text-[11px] text-zinc-500">

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { getActiveAutomationLeadIds } from "@/lib/outreach-automation";
 import { getPrisma } from "@/lib/prisma";
 import { getOutreachPipelineLeadWhere } from "@/lib/outreach";
 import { requireApiSession } from "@/lib/session";
@@ -12,6 +13,7 @@ export async function GET(request: Request) {
 
   try {
     const prisma = getPrisma();
+    const automationLeadIds = new Set(await getActiveAutomationLeadIds());
     const leads = await prisma.lead.findMany({
       where: getOutreachPipelineLeadWhere(),
       orderBy: {
@@ -36,7 +38,9 @@ export async function GET(request: Request) {
       },
     });
 
-    return NextResponse.json({ leads });
+    return NextResponse.json({
+      leads: leads.filter((lead) => !automationLeadIds.has(lead.id)),
+    });
   } catch (error: any) {
     console.error("Pipeline leads fetch error:", error);
     return NextResponse.json(

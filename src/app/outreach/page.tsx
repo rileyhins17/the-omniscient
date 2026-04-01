@@ -3,6 +3,7 @@ import { Brain, MessageSquareText, Send } from "lucide-react";
 import { StatCard } from "@/components/ui/stat-card";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import { OutreachHub } from "@/components/outreach/outreach-hub";
+import { getActiveAutomationLeadIds, listAutomationOverview } from "@/lib/outreach-automation";
 import { getPrisma } from "@/lib/prisma";
 import {
   getContactedOutreachLeadWhere,
@@ -15,9 +16,11 @@ export default async function OutreachPage() {
   await requireSession();
 
   const prisma = getPrisma();
+  const automationLeadIds = new Set(await getActiveAutomationLeadIds());
+  const automationOverview = await listAutomationOverview();
 
   // Fetch the pipeline: unsent leads above the auto-include score.
-  const pipelineLeads = await prisma.lead.findMany({
+  const allPipelineLeads = await prisma.lead.findMany({
     where: getOutreachPipelineLeadWhere(),
     orderBy: {
       axiomScore: "desc",
@@ -40,6 +43,7 @@ export default async function OutreachPage() {
       outreachNotes: true,
     },
   });
+  const pipelineLeads = allPipelineLeads.filter((lead) => !automationLeadIds.has(lead.id));
 
   const contactedLeads = await prisma.lead.findMany({
     where: getContactedOutreachLeadWhere(),
@@ -175,6 +179,7 @@ export default async function OutreachPage() {
           <OutreachHub
             initialPipelineLeads={JSON.parse(JSON.stringify(pipelineLeads))}
             initialEnrichedLeads={JSON.parse(JSON.stringify(enrichedLeads))}
+            initialAutomationOverview={JSON.parse(JSON.stringify(automationOverview))}
           />
         </ToastProvider>
       </div>

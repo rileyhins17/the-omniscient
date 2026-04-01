@@ -152,6 +152,9 @@ export type OutreachEmailRecord = {
   leadId: number;
   senderUserId: string;
   senderEmail: string;
+  mailboxId: string | null;
+  sequenceId: string | null;
+  sequenceStepId: string | null;
   recipientEmail: string;
   subject: string;
   bodyHtml: string;
@@ -161,6 +164,106 @@ export type OutreachEmailRecord = {
   status: string;
   errorMessage: string | null;
   sentAt: Date;
+};
+
+export type OutreachAutomationSettingRecord = {
+  id: string;
+  enabled: boolean;
+  globalPaused: boolean;
+  sendWindowStartHour: number;
+  sendWindowStartMinute: number;
+  sendWindowEndHour: number;
+  sendWindowEndMinute: number;
+  weekdaysOnly: boolean;
+  initialDelayMinMinutes: number;
+  initialDelayMaxMinutes: number;
+  followUp1BusinessDays: number;
+  followUp2BusinessDays: number;
+  schedulerClaimBatch: number;
+  replySyncStaleMinutes: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type OutreachMailboxRecord = {
+  id: string;
+  userId: string;
+  gmailConnectionId: string | null;
+  gmailAddress: string;
+  label: string | null;
+  status: string;
+  timezone: string;
+  dailyLimit: number;
+  hourlyLimit: number;
+  minDelaySeconds: number;
+  maxDelaySeconds: number;
+  warmupLevel: number;
+  lastSentAt: Date | null;
+  lastReplyCheckAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type OutreachSequenceRecord = {
+  id: string;
+  leadId: number;
+  queuedByUserId: string;
+  assignedMailboxId: string | null;
+  status: string;
+  currentStep: string;
+  nextScheduledAt: Date | null;
+  lastSentAt: Date | null;
+  replyDetectedAt: Date | null;
+  stopReason: string | null;
+  sequenceConfigSnapshot: string;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type OutreachSequenceStepRecord = {
+  id: string;
+  sequenceId: string;
+  stepNumber: number;
+  stepType: string;
+  status: string;
+  scheduledFor: Date;
+  claimedAt: Date | null;
+  claimedByRunId: string | null;
+  sentAt: Date | null;
+  gmailMessageId: string | null;
+  gmailThreadId: string | null;
+  subject: string | null;
+  bodyHtml: string | null;
+  bodyPlain: string | null;
+  generationModel: string | null;
+  errorMessage: string | null;
+  attemptCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export type OutreachSuppressionRecord = {
+  id: string;
+  email: string | null;
+  domain: string | null;
+  reason: string;
+  source: string;
+  leadId: number | null;
+  sequenceId: string | null;
+  createdAt: Date;
+  expiresAt: Date | null;
+};
+
+export type OutreachRunRecord = {
+  id: string;
+  startedAt: Date;
+  finishedAt: Date | null;
+  status: string;
+  claimedCount: number;
+  sentCount: number;
+  failedCount: number;
+  skippedCount: number;
+  metadata: string | null;
 };
 
 type TableSpec<T extends Record<string, unknown>> = {
@@ -211,8 +314,15 @@ type PrismaLike = {
     update(args: MutationArgs): Promise<UserRecord>;
   };
   gmailConnection: {
+    count(args?: CountArgs): Promise<number>;
     create(args: CreateArgs): Promise<GmailConnectionRecord>;
     delete(args: { where: WhereInput }): Promise<void>;
+    findFirst<S extends SelectMap<GmailConnectionRecord> | undefined = undefined>(
+      args?: FindManyArgs<GmailConnectionRecord, S>,
+    ): Promise<Selected<GmailConnectionRecord, S> | null>;
+    findMany<S extends SelectMap<GmailConnectionRecord> | undefined = undefined>(
+      args?: FindManyArgs<GmailConnectionRecord, S>,
+    ): Promise<Array<Selected<GmailConnectionRecord, S>>>;
     findUnique<S extends SelectMap<GmailConnectionRecord> | undefined = undefined>(
       args: FindUniqueArgs<GmailConnectionRecord, S>,
     ): Promise<Selected<GmailConnectionRecord, S> | null>;
@@ -221,12 +331,97 @@ type PrismaLike = {
   outreachEmail: {
     count(args?: CountArgs): Promise<number>;
     create(args: CreateArgs): Promise<OutreachEmailRecord>;
+    findUnique<S extends SelectMap<OutreachEmailRecord> | undefined = undefined>(
+      args: FindUniqueArgs<OutreachEmailRecord, S>,
+    ): Promise<Selected<OutreachEmailRecord, S> | null>;
     findMany<S extends SelectMap<OutreachEmailRecord> | undefined = undefined>(
       args?: FindManyArgs<OutreachEmailRecord, S>,
     ): Promise<Array<Selected<OutreachEmailRecord, S>>>;
     findFirst<S extends SelectMap<OutreachEmailRecord> | undefined = undefined>(
       args?: FindManyArgs<OutreachEmailRecord, S>,
     ): Promise<Selected<OutreachEmailRecord, S> | null>;
+    update(args: MutationArgs): Promise<OutreachEmailRecord>;
+    updateMany(args: UpdateManyArgs): Promise<{ count: number }>;
+  };
+  outreachAutomationSetting: {
+    create(args: CreateArgs): Promise<OutreachAutomationSettingRecord>;
+    findFirst<S extends SelectMap<OutreachAutomationSettingRecord> | undefined = undefined>(
+      args?: FindManyArgs<OutreachAutomationSettingRecord, S>,
+    ): Promise<Selected<OutreachAutomationSettingRecord, S> | null>;
+    findUnique<S extends SelectMap<OutreachAutomationSettingRecord> | undefined = undefined>(
+      args: FindUniqueArgs<OutreachAutomationSettingRecord, S>,
+    ): Promise<Selected<OutreachAutomationSettingRecord, S> | null>;
+    update(args: MutationArgs): Promise<OutreachAutomationSettingRecord>;
+  };
+  outreachMailbox: {
+    count(args?: CountArgs): Promise<number>;
+    create(args: CreateArgs): Promise<OutreachMailboxRecord>;
+    findFirst<S extends SelectMap<OutreachMailboxRecord> | undefined = undefined>(
+      args?: FindManyArgs<OutreachMailboxRecord, S>,
+    ): Promise<Selected<OutreachMailboxRecord, S> | null>;
+    findMany<S extends SelectMap<OutreachMailboxRecord> | undefined = undefined>(
+      args?: FindManyArgs<OutreachMailboxRecord, S>,
+    ): Promise<Array<Selected<OutreachMailboxRecord, S>>>;
+    findUnique<S extends SelectMap<OutreachMailboxRecord> | undefined = undefined>(
+      args: FindUniqueArgs<OutreachMailboxRecord, S>,
+    ): Promise<Selected<OutreachMailboxRecord, S> | null>;
+    update(args: MutationArgs): Promise<OutreachMailboxRecord>;
+    updateMany(args: UpdateManyArgs): Promise<{ count: number }>;
+  };
+  outreachSequence: {
+    count(args?: CountArgs): Promise<number>;
+    create(args: CreateArgs): Promise<OutreachSequenceRecord>;
+    findFirst<S extends SelectMap<OutreachSequenceRecord> | undefined = undefined>(
+      args?: FindManyArgs<OutreachSequenceRecord, S>,
+    ): Promise<Selected<OutreachSequenceRecord, S> | null>;
+    findMany<S extends SelectMap<OutreachSequenceRecord> | undefined = undefined>(
+      args?: FindManyArgs<OutreachSequenceRecord, S>,
+    ): Promise<Array<Selected<OutreachSequenceRecord, S>>>;
+    findUnique<S extends SelectMap<OutreachSequenceRecord> | undefined = undefined>(
+      args: FindUniqueArgs<OutreachSequenceRecord, S>,
+    ): Promise<Selected<OutreachSequenceRecord, S> | null>;
+    update(args: MutationArgs): Promise<OutreachSequenceRecord>;
+    updateMany(args: UpdateManyArgs): Promise<{ count: number }>;
+  };
+  outreachSequenceStep: {
+    count(args?: CountArgs): Promise<number>;
+    create(args: CreateArgs): Promise<OutreachSequenceStepRecord>;
+    findFirst<S extends SelectMap<OutreachSequenceStepRecord> | undefined = undefined>(
+      args?: FindManyArgs<OutreachSequenceStepRecord, S>,
+    ): Promise<Selected<OutreachSequenceStepRecord, S> | null>;
+    findMany<S extends SelectMap<OutreachSequenceStepRecord> | undefined = undefined>(
+      args?: FindManyArgs<OutreachSequenceStepRecord, S>,
+    ): Promise<Array<Selected<OutreachSequenceStepRecord, S>>>;
+    findUnique<S extends SelectMap<OutreachSequenceStepRecord> | undefined = undefined>(
+      args: FindUniqueArgs<OutreachSequenceStepRecord, S>,
+    ): Promise<Selected<OutreachSequenceStepRecord, S> | null>;
+    update(args: MutationArgs): Promise<OutreachSequenceStepRecord>;
+    updateMany(args: UpdateManyArgs): Promise<{ count: number }>;
+  };
+  outreachSuppression: {
+    count(args?: CountArgs): Promise<number>;
+    create(args: CreateArgs): Promise<OutreachSuppressionRecord>;
+    findFirst<S extends SelectMap<OutreachSuppressionRecord> | undefined = undefined>(
+      args?: FindManyArgs<OutreachSuppressionRecord, S>,
+    ): Promise<Selected<OutreachSuppressionRecord, S> | null>;
+    findMany<S extends SelectMap<OutreachSuppressionRecord> | undefined = undefined>(
+      args?: FindManyArgs<OutreachSuppressionRecord, S>,
+    ): Promise<Array<Selected<OutreachSuppressionRecord, S>>>;
+    update(args: MutationArgs): Promise<OutreachSuppressionRecord>;
+  };
+  outreachRun: {
+    count(args?: CountArgs): Promise<number>;
+    create(args: CreateArgs): Promise<OutreachRunRecord>;
+    findFirst<S extends SelectMap<OutreachRunRecord> | undefined = undefined>(
+      args?: FindManyArgs<OutreachRunRecord, S>,
+    ): Promise<Selected<OutreachRunRecord, S> | null>;
+    findMany<S extends SelectMap<OutreachRunRecord> | undefined = undefined>(
+      args?: FindManyArgs<OutreachRunRecord, S>,
+    ): Promise<Array<Selected<OutreachRunRecord, S>>>;
+    findUnique<S extends SelectMap<OutreachRunRecord> | undefined = undefined>(
+      args: FindUniqueArgs<OutreachRunRecord, S>,
+    ): Promise<Selected<OutreachRunRecord, S> | null>;
+    update(args: MutationArgs): Promise<OutreachRunRecord>;
   };
 };
 
@@ -407,7 +602,7 @@ const gmailConnectionTable: TableSpec<GmailConnectionRecord> = {
 const outreachEmailTable: TableSpec<OutreachEmailRecord> = {
   booleanFields: new Set(),
   columns: [
-    "id", "leadId", "senderUserId", "senderEmail", "recipientEmail",
+    "id", "leadId", "senderUserId", "senderEmail", "mailboxId", "sequenceId", "sequenceStepId", "recipientEmail",
     "subject", "bodyHtml", "bodyPlain", "gmailMessageId", "gmailThreadId",
     "status", "errorMessage", "sentAt",
   ],
@@ -416,6 +611,180 @@ const outreachEmailTable: TableSpec<OutreachEmailRecord> = {
   integerFields: new Set(["leadId"]),
   stringFields: new Set(),
   tableName: "OutreachEmail",
+};
+
+const outreachAutomationSettingTable: TableSpec<OutreachAutomationSettingRecord> = {
+  booleanFields: new Set(["enabled", "globalPaused", "weekdaysOnly"]),
+  columns: [
+    "id",
+    "enabled",
+    "globalPaused",
+    "sendWindowStartHour",
+    "sendWindowStartMinute",
+    "sendWindowEndHour",
+    "sendWindowEndMinute",
+    "weekdaysOnly",
+    "initialDelayMinMinutes",
+    "initialDelayMaxMinutes",
+    "followUp1BusinessDays",
+    "followUp2BusinessDays",
+    "schedulerClaimBatch",
+    "replySyncStaleMinutes",
+    "createdAt",
+    "updatedAt",
+  ],
+  dateFields: new Set(["createdAt", "updatedAt"]),
+  idField: "id",
+  integerFields: new Set([
+    "sendWindowStartHour",
+    "sendWindowStartMinute",
+    "sendWindowEndHour",
+    "sendWindowEndMinute",
+    "initialDelayMinMinutes",
+    "initialDelayMaxMinutes",
+    "followUp1BusinessDays",
+    "followUp2BusinessDays",
+    "schedulerClaimBatch",
+    "replySyncStaleMinutes",
+  ]),
+  stringFields: new Set(),
+  tableName: "OutreachAutomationSetting",
+  updatedAtField: "updatedAt",
+};
+
+const outreachMailboxTable: TableSpec<OutreachMailboxRecord> = {
+  booleanFields: new Set(),
+  columns: [
+    "id",
+    "userId",
+    "gmailConnectionId",
+    "gmailAddress",
+    "label",
+    "status",
+    "timezone",
+    "dailyLimit",
+    "hourlyLimit",
+    "minDelaySeconds",
+    "maxDelaySeconds",
+    "warmupLevel",
+    "lastSentAt",
+    "lastReplyCheckAt",
+    "createdAt",
+    "updatedAt",
+  ],
+  dateFields: new Set(["lastSentAt", "lastReplyCheckAt", "createdAt", "updatedAt"]),
+  idField: "id",
+  integerFields: new Set(["dailyLimit", "hourlyLimit", "minDelaySeconds", "maxDelaySeconds", "warmupLevel"]),
+  stringFields: new Set(["userId", "gmailConnectionId", "gmailAddress", "label", "status", "timezone"]),
+  tableName: "OutreachMailbox",
+  updatedAtField: "updatedAt",
+};
+
+const outreachSequenceTable: TableSpec<OutreachSequenceRecord> = {
+  booleanFields: new Set(),
+  columns: [
+    "id",
+    "leadId",
+    "queuedByUserId",
+    "assignedMailboxId",
+    "status",
+    "currentStep",
+    "nextScheduledAt",
+    "lastSentAt",
+    "replyDetectedAt",
+    "stopReason",
+    "sequenceConfigSnapshot",
+    "createdAt",
+    "updatedAt",
+  ],
+  dateFields: new Set(["nextScheduledAt", "lastSentAt", "replyDetectedAt", "createdAt", "updatedAt"]),
+  idField: "id",
+  integerFields: new Set(["leadId"]),
+  stringFields: new Set([
+    "id",
+    "queuedByUserId",
+    "assignedMailboxId",
+    "status",
+    "currentStep",
+    "stopReason",
+    "sequenceConfigSnapshot",
+  ]),
+  tableName: "OutreachSequence",
+  updatedAtField: "updatedAt",
+};
+
+const outreachSequenceStepTable: TableSpec<OutreachSequenceStepRecord> = {
+  booleanFields: new Set(),
+  columns: [
+    "id",
+    "sequenceId",
+    "stepNumber",
+    "stepType",
+    "status",
+    "scheduledFor",
+    "claimedAt",
+    "claimedByRunId",
+    "sentAt",
+    "gmailMessageId",
+    "gmailThreadId",
+    "subject",
+    "bodyHtml",
+    "bodyPlain",
+    "generationModel",
+    "errorMessage",
+    "attemptCount",
+    "createdAt",
+    "updatedAt",
+  ],
+  dateFields: new Set(["scheduledFor", "claimedAt", "sentAt", "createdAt", "updatedAt"]),
+  idField: "id",
+  integerFields: new Set(["stepNumber", "attemptCount"]),
+  stringFields: new Set([
+    "id",
+    "sequenceId",
+    "stepType",
+    "status",
+    "claimedByRunId",
+    "gmailMessageId",
+    "gmailThreadId",
+    "subject",
+    "bodyHtml",
+    "bodyPlain",
+    "generationModel",
+    "errorMessage",
+  ]),
+  tableName: "OutreachSequenceStep",
+  updatedAtField: "updatedAt",
+};
+
+const outreachSuppressionTable: TableSpec<OutreachSuppressionRecord> = {
+  booleanFields: new Set(),
+  columns: ["id", "email", "domain", "reason", "source", "leadId", "sequenceId", "createdAt", "expiresAt"],
+  dateFields: new Set(["createdAt", "expiresAt"]),
+  idField: "id",
+  integerFields: new Set(["leadId"]),
+  stringFields: new Set(["id", "email", "domain", "reason", "source", "sequenceId"]),
+  tableName: "OutreachSuppression",
+};
+
+const outreachRunTable: TableSpec<OutreachRunRecord> = {
+  booleanFields: new Set(),
+  columns: [
+    "id",
+    "startedAt",
+    "finishedAt",
+    "status",
+    "claimedCount",
+    "sentCount",
+    "failedCount",
+    "skippedCount",
+    "metadata",
+  ],
+  dateFields: new Set(["startedAt", "finishedAt"]),
+  idField: "id",
+  integerFields: new Set(["claimedCount", "sentCount", "failedCount", "skippedCount"]),
+  stringFields: new Set(["id", "status", "metadata"]),
+  tableName: "OutreachRun",
 };
 
 function quoteIdentifier(identifier: string) {
@@ -945,6 +1314,12 @@ function createPrismaLike(): PrismaLike {
     user: createModel(userTable),
     gmailConnection: createModel(gmailConnectionTable),
     outreachEmail: createModel(outreachEmailTable),
+    outreachAutomationSetting: createModel(outreachAutomationSettingTable),
+    outreachMailbox: createModel(outreachMailboxTable),
+    outreachSequence: createModel(outreachSequenceTable),
+    outreachSequenceStep: createModel(outreachSequenceStepTable),
+    outreachSuppression: createModel(outreachSuppressionTable),
+    outreachRun: createModel(outreachRunTable),
   };
 }
 

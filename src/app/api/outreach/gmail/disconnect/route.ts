@@ -11,10 +11,36 @@ export async function POST(request: Request) {
   }
 
   try {
+    const body = (await request.json().catch(() => ({}))) as {
+      mailboxId?: string;
+      connectionId?: string;
+    };
     const prisma = getPrisma();
-    const connection = await prisma.gmailConnection.findUnique({
-      where: { userId: authResult.session.user.id },
-    });
+    let connection = body.connectionId
+      ? await prisma.gmailConnection.findUnique({ where: { id: body.connectionId } })
+      : null;
+    let mailbox = body.mailboxId
+      ? await prisma.outreachMailbox.findUnique({ where: { id: body.mailboxId } })
+      : null;
+
+    if (!connection && mailbox?.gmailConnectionId) {
+      connection = await prisma.gmailConnection.findUnique({
+        where: { id: mailbox.gmailConnectionId },
+      });
+    }
+
+    if (!connection) {
+      connection = await prisma.gmailConnection.findFirst({
+        where: { userId: authResult.session.user.id },
+        orderBy: { updatedAt: "desc" },
+      });
+    }
+
+    if (!mailbox && connection) {
+      mailbox = await prisma.outreachMailbox.findFirst({
+        where: { gmailConnectionId: connection.id },
+      });
+    }
 
     if (!connection) {
       return NextResponse.json({ error: "No Gmail connection found" }, { status: 404 });
@@ -28,9 +54,18 @@ export async function POST(request: Request) {
       // Revocation is best-effort
     }
 
-    // Delete the connection record
+    if (mailbox) {
+      await prisma.outreachMailbox.update({
+        where: { id: mailbox.id },
+        data: {
+          status: "DISABLED",
+          gmailConnectionId: null,
+        },
+      });
+    }
+
     await prisma.gmailConnection.delete({
-      where: { userId: authResult.session.user.id },
+      where: { id: connection.id },
     });
 
     return NextResponse.json({ disconnected: true });
