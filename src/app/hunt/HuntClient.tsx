@@ -63,7 +63,17 @@ function formatDuration(seconds: number) {
   return `${minutes}:${remainingSeconds}`;
 }
 
-function HuntInner() {
+type IntakeLead = {
+  id: number;
+  businessName: string;
+  city: string;
+  niche: string;
+  email: string | null;
+  source: string | null;
+  createdAt: string | null;
+};
+
+function HuntInner({ initialIntakeLeads }: { initialIntakeLeads: IntakeLead[] }) {
   const { toast } = useToast();
   const store = useHuntStore();
 
@@ -83,6 +93,7 @@ function HuntInner() {
   } | null>(null);
   const [scorePulse, setScorePulse] = useState(false);
   const [animatedScore, setAnimatedScore] = useState(0);
+  const [intakeLeads, setIntakeLeads] = useState(initialIntakeLeads);
 
   useEffect(() => {
     if (!store.scorePulseAt) return;
@@ -136,6 +147,10 @@ function HuntInner() {
   useEffect(() => {
     void store.hydrateActiveRun();
   }, [store.hydrateActiveRun]);
+
+  useEffect(() => {
+    setIntakeLeads(initialIntakeLeads);
+  }, [initialIntakeLeads]);
 
   useEffect(() => {
     let alive = true;
@@ -559,6 +574,49 @@ function HuntInner() {
         )}
       </section>
 
+      <section className="rounded-[28px] border border-white/[0.06] bg-white/[0.02] p-5">
+        <div className="flex flex-col gap-4 border-b border-white/[0.06] pb-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.24em] text-zinc-500">Intake handoff</div>
+            <h2 className="mt-2 text-2xl font-semibold text-white">Batch output waiting for Outreach</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
+              Lead Generator owns sourcing and batch creation. Outreach owns the preparation pipeline once these records need enrichment.
+            </p>
+          </div>
+          <Button asChild className="rounded-full bg-white px-4 text-sm text-black hover:bg-zinc-200">
+            <Link href="/outreach?stage=enrichment">
+              Send intake batch to Outreach
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
+
+        <div className="mt-5 grid gap-3 lg:grid-cols-3">
+          {intakeLeads.length === 0 ? (
+            <div className="rounded-[22px] border border-white/[0.06] bg-black/20 px-4 py-10 text-sm text-zinc-500 lg:col-span-3">
+              No sourced leads are waiting in intake right now.
+            </div>
+          ) : (
+            intakeLeads.map((lead) => (
+              <div key={lead.id} className="rounded-[22px] border border-white/[0.06] bg-black/20 px-4 py-4">
+                <div className="text-sm font-semibold text-white">{lead.businessName}</div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  {lead.city} · {lead.niche}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-zinc-400">
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
+                    {lead.email ? "Email found" : "Needs enrichment"}
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
+                    {lead.source || "Source"}
+                  </span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
       {showReplaceConfirm && pendingReplacement && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
           <div className="w-full max-w-lg rounded-[28px] border border-white/[0.08] bg-zinc-950 p-6 shadow-[0_30px_120px_rgba(0,0,0,0.55)]">
@@ -589,10 +647,10 @@ function HuntInner() {
   );
 }
 
-export default function HuntClient() {
+export default function HuntClient({ initialIntakeLeads = [] }: { initialIntakeLeads?: IntakeLead[] }) {
   return (
     <ToastProvider>
-      <HuntInner />
+      <HuntInner initialIntakeLeads={initialIntakeLeads} />
     </ToastProvider>
   );
 }

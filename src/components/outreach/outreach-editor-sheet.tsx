@@ -21,6 +21,7 @@ import {
   getOutreachChannelLabel,
   OUTREACH_CHANNEL_OPTIONS,
   OUTREACH_STATUS_OPTIONS,
+  READY_FOR_FIRST_TOUCH_STATUS,
   toDateInputValue,
   type OutreachLeadFields,
   type OutreachStatus,
@@ -101,11 +102,13 @@ export function OutreachEditorSheet({
         },
         body: JSON.stringify({
           outreachStatus: status,
-          outreachChannel: status === "NOT_CONTACTED" ? null : channel || null,
+          outreachChannel:
+            status === "NOT_CONTACTED" || status === READY_FOR_FIRST_TOUCH_STATUS ? null : channel || null,
           nextFollowUpDue: nextFollowUpDue || null,
           outreachNotes: notes,
           touchLastContacted:
             status !== "NOT_CONTACTED" &&
+            status !== READY_FOR_FIRST_TOUCH_STATUS &&
             (status !== baseline.status || channel !== baseline.channel),
         }),
       });
@@ -187,7 +190,7 @@ export function OutreachEditorSheet({
               <select
                 value={channel}
                 onChange={(event) => setChannel(event.target.value)}
-                disabled={status === "NOT_CONTACTED"}
+                disabled={status === "NOT_CONTACTED" || status === READY_FOR_FIRST_TOUCH_STATUS}
                 className="h-9 w-full rounded-md border border-white/[0.08] bg-black/40 px-3 text-sm text-white outline-none transition-all disabled:cursor-not-allowed disabled:opacity-40 focus:border-emerald-500/50"
               >
                 <option value="">Select channel</option>

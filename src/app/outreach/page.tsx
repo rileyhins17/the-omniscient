@@ -1,15 +1,16 @@
-import { Bot, Brain, Clock3, MailCheck, Send } from "lucide-react";
+import { Brain, Clock3, MailCheck, ShieldCheck } from "lucide-react";
 
 import { OutreachHub } from "@/components/outreach/outreach-hub";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import { StatCard } from "@/components/ui/stat-card";
-import { hasValidPipelineEmail, isLeadOutreachEligible } from "@/lib/lead-qualification";
+import { isIntakeLead } from "@/lib/pipeline-lifecycle";
 import { getActiveAutomationLeadIds, listAutomationOverview } from "@/lib/outreach-automation";
 import { getPrisma } from "@/lib/prisma";
 import {
   getContactedOutreachLeadWhere,
   getOutreachPipelineLeadWhere,
-  OUTREACH_AUTO_INCLUDE_MIN_SCORE,
+  isContactedOutreachStatus,
+  READY_FOR_FIRST_TOUCH_STATUS,
 } from "@/lib/outreach";
 import { requireSession } from "@/lib/session";
 import { formatAppDateTime } from "@/lib/time";
@@ -78,14 +79,74 @@ function formatRunTime(value: Date | string | null | undefined) {
   );
 }
 
-export default async function OutreachPage() {
+export default async function OutreachPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ stage?: string }>;
+}) {
   await requireSession();
 
   const prisma = getPrisma();
+  const params = (await searchParams) || {};
+  const requestedStage = params.stage;
+  const initialTab =
+    requestedStage === "qualification"
+      ? "qualification"
+      : requestedStage === "initial"
+        ? "initial"
+        : requestedStage === "log"
+          ? "log"
+          : "enrichment";
+
   const automationLeadIds = new Set(await getActiveAutomationLeadIds().catch(() => []));
   const automationOverview = await listAutomationOverview().catch(() => emptyAutomationOverview());
 
-  const allPipelineLeads = await prisma.lead.findMany({
+  const allPreSendLeads = await prisma.lead.findMany({
+    where: {
+      isArchived: false,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    select: {
+      id: true,
+      businessName: true,
+      city: true,
+      niche: true,
+      phone: true,
+      email: true,
+      emailConfidence: true,
+      emailFlags: true,
+      emailType: true,
+      contactName: true,
+      axiomScore: true,
+      axiomTier: true,
+      websiteStatus: true,
+      enrichedAt: true,
+      enrichmentData: true,
+      outreachStatus: true,
+      source: true,
+      createdAt: true,
+      lastUpdated: true,
+      outreachNotes: true,
+    },
+  }).catch(() => []);
+
+  const enrichmentLeads = allPreSendLeads.filter((lead) => {
+    if (automationLeadIds.has(lead.id)) return false;
+    if (lead.outreachStatus === READY_FOR_FIRST_TOUCH_STATUS) return false;
+    if (isContactedOutreachStatus(lead.outreachStatus)) return false;
+    return Boolean(lead.source) || !lead.enrichedAt || !lead.enrichmentData;
+  });
+
+  const qualificationLeads = allPreSendLeads.filter((lead) => {
+    if (automationLeadIds.has(lead.id)) return false;
+    if (lead.outreachStatus === READY_FOR_FIRST_TOUCH_STATUS) return false;
+    if (isContactedOutreachStatus(lead.outreachStatus)) return false;
+    return Boolean(lead.enrichedAt);
+  });
+
+  const readyLeads = await prisma.lead.findMany({
     where: getOutreachPipelineLeadWhere(),
     orderBy: {
       axiomScore: "desc",
@@ -103,7 +164,13 @@ export default async function OutreachPage() {
       emailType: true,
       axiomScore: true,
       axiomTier: true,
+      websiteStatus: true,
+      enrichedAt: true,
+      enrichmentData: true,
       outreachStatus: true,
+      source: true,
+      createdAt: true,
+      lastUpdated: true,
       outreachChannel: true,
       firstContactedAt: true,
       lastContactedAt: true,
@@ -111,9 +178,8 @@ export default async function OutreachPage() {
       outreachNotes: true,
     },
   }).catch(() => []);
-  const pipelineLeads = allPipelineLeads.filter(
-    (lead) => !automationLeadIds.has(lead.id) && isLeadOutreachEligible(lead),
-  );
+
+  const initialOutreachLeads = readyLeads.filter((lead) => !automationLeadIds.has(lead.id));
 
   const contactedLeads = await prisma.lead.findMany({
     where: getContactedOutreachLeadWhere(),
@@ -124,32 +190,8 @@ export default async function OutreachPage() {
       id: true,
       outreachStatus: true,
       nextFollowUpDue: true,
-    },
-  }).catch(() => []);
-
-  const enrichedLeads = await prisma.lead.findMany({
-    where: {
-      enrichedAt: { not: null },
-    },
-    orderBy: {
-      enrichedAt: "desc",
-    },
-    select: {
-      id: true,
       businessName: true,
-      city: true,
-      niche: true,
-      email: true,
-      emailConfidence: true,
-      emailFlags: true,
-      emailType: true,
-      contactName: true,
-      axiomScore: true,
-      axiomTier: true,
-      websiteStatus: true,
-      enrichedAt: true,
-      enrichmentData: true,
-      outreachStatus: true,
+      lastContactedAt: true,
     },
   }).catch(() => []);
 
@@ -171,16 +213,9 @@ export default async function OutreachPage() {
   const followUpDue = contactedLeads.filter(
     (lead) => lead.nextFollowUpDue && new Date(lead.nextFollowUpDue).getTime() <= now,
   ).length;
-  const validEmailLeads = enrichedLeads.filter((lead) => hasValidPipelineEmail(lead)).length;
-  const openConversations = contactedLeads.filter(
-    (lead) =>
-      lead.outreachStatus === "OUTREACHED" ||
-      lead.outreachStatus === "FOLLOW_UP_DUE" ||
-      lead.outreachStatus === "REPLIED",
-  ).length;
-  const liveAutomationCount =
-    automationOverview.stats.queued + automationOverview.stats.active + automationOverview.stats.paused;
+  const intakeBacklog = allPreSendLeads.filter((lead) => isIntakeLead(lead)).length;
   const lastRun = automationOverview.recentRuns[0];
+  const followUpSequences = automationOverview.sequences.filter((sequence: any) => sequence.hasSentAnyStep);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
@@ -195,12 +230,12 @@ export default async function OutreachPage() {
                 Outreach
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
-                Review leads, enrich them, send manually when needed, and hand qualified work off to the dedicated Automation engine.
+                Outreach is now the full pre-send console: intake lands here for enrichment, qualification makes approval explicit, and Initial Outreach owns only leads that have never had a successful first send.
               </p>
             </div>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3 lg:w-[420px]">
+          <div className="grid gap-3 sm:grid-cols-3 lg:w-[440px]">
             <div className="rounded-2xl border border-white/[0.06] bg-black/20 px-4 py-3">
               <div className="text-[11px] text-zinc-500">Last scheduler run</div>
               <div className="mt-1 text-sm font-medium text-white">
@@ -209,16 +244,16 @@ export default async function OutreachPage() {
               <div className="mt-1 text-xs text-zinc-500">{formatRunTime(lastRun?.startedAt)}</div>
             </div>
             <div className="rounded-2xl border border-white/[0.06] bg-black/20 px-4 py-3">
-              <div className="text-[11px] text-zinc-500">Follow-up due</div>
-              <div className="mt-1 text-sm font-medium text-white">{followUpDue}</div>
-              <div className="mt-1 text-xs text-zinc-500">manual conversations waiting</div>
+              <div className="text-[11px] text-zinc-500">Next send</div>
+              <div className="mt-1 text-sm font-medium text-white">
+                {formatRunTime(automationOverview.engine.nextSendAt)}
+              </div>
+              <div className="mt-1 text-xs text-zinc-500">Automation owns post-send timing</div>
             </div>
             <div className="rounded-2xl border border-white/[0.06] bg-black/20 px-4 py-3">
-              <div className="text-[11px] text-zinc-500">Automation ready rule</div>
-              <div className="mt-1 text-sm font-medium text-white">
-                Score above {OUTREACH_AUTO_INCLUDE_MIN_SCORE}
-              </div>
-              <div className="mt-1 text-xs text-zinc-500">plus a vetted pipeline-usable email</div>
+              <div className="text-[11px] text-zinc-500">Follow-up due</div>
+              <div className="mt-1 text-sm font-medium text-white">{followUpDue}</div>
+              <div className="mt-1 text-xs text-zinc-500">manual threads waiting</div>
             </div>
           </div>
         </div>
@@ -226,65 +261,42 @@ export default async function OutreachPage() {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Pipeline"
-          value={pipelineLeads.length}
-          subtitle={`manual candidates above ${OUTREACH_AUTO_INCLUDE_MIN_SCORE}`}
-          icon={<MailCheck />}
+          label="Intake Backlog"
+          value={intakeBacklog}
+          subtitle="sourced leads still entering prep"
+          icon={<Brain />}
           iconColor="text-cyan-400"
         />
         <StatCard
-          label="Enriched"
-          value={enrichedLeads.length}
-          subtitle={`${validEmailLeads} with vetted email`}
-          icon={<Brain />}
+          label="Qualification Queue"
+          value={qualificationLeads.length}
+          subtitle="enriched leads awaiting approval"
+          icon={<ShieldCheck />}
           iconColor="text-purple-400"
         />
         <StatCard
-          label="Automation Live"
-          value={liveAutomationCount}
-          subtitle={`${automationOverview.stats.ready} ready to queue`}
-          icon={<Bot />}
-          iconColor="text-blue-400"
+          label="Ready for First Touch"
+          value={initialOutreachLeads.length}
+          subtitle={`${automationOverview.stats.queued} already queued`}
+          icon={<MailCheck />}
+          iconColor="text-emerald-400"
         />
         <StatCard
           label="Sent Today"
           value={emailsSentToday}
-          subtitle={`${openConversations} conversations still active`}
-          icon={<Send />}
-          iconColor="text-emerald-400"
+          subtitle={`${followUpSequences.length} follow-up sequences live`}
+          icon={<Clock3 />}
+          iconColor="text-amber-400"
         />
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-4">
-          <div className="flex items-center gap-2 text-sm font-medium text-white">
-            <Clock3 className="h-4 w-4 text-amber-400" />
-            What needs attention now
-          </div>
-          <p className="mt-2 text-sm leading-6 text-zinc-400">
-            Manual follow-ups and newly enriched leads are handled here. Automation blockers and scheduled sends now live in the dedicated Automation page.
-          </p>
-        </div>
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-4">
-          <div className="text-sm font-medium text-white">How automation behaves</div>
-          <p className="mt-2 text-sm leading-6 text-zinc-400">
-            Automatic sending now lives in the dedicated Automation page. Outreach stays focused on enrichment, manual sends, and the email log.
-          </p>
-        </div>
-        <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-4">
-          <div className="text-sm font-medium text-white">What the tabs mean</div>
-          <p className="mt-2 text-sm leading-6 text-zinc-400">
-            Pipeline is manual unsent work, Enriched is ready for review, Automation shows queued
-            and running sequences, and Email Log tracks delivered outreach.
-          </p>
-        </div>
       </section>
 
       <ToastProvider>
         <OutreachHub
-          initialPipelineLeads={JSON.parse(JSON.stringify(pipelineLeads))}
-          initialEnrichedLeads={JSON.parse(JSON.stringify(enrichedLeads))}
+          initialEnrichmentLeads={JSON.parse(JSON.stringify(enrichmentLeads))}
+          initialQualificationLeads={JSON.parse(JSON.stringify(qualificationLeads))}
+          initialReadyLeads={JSON.parse(JSON.stringify(initialOutreachLeads))}
           initialAutomationOverview={JSON.parse(JSON.stringify(automationOverview))}
+          initialTab={initialTab}
         />
       </ToastProvider>
     </div>

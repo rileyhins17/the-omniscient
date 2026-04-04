@@ -2,124 +2,58 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowRight, Brain, Inbox, MessageSquareText, Sparkles } from "lucide-react";
+import { ArrowRight, Brain, Inbox, MailCheck, ShieldCheck, Sparkles } from "lucide-react";
 
 import { EmailComposer } from "@/components/outreach/email-composer";
 import { EmailLogTable } from "@/components/outreach/email-log-table";
-import { EnrichmentPanel } from "@/components/outreach/enrichment-panel";
 import { GmailConnectCard } from "@/components/outreach/gmail-connect-card";
-import { OutreachClient } from "@/components/outreach/outreach-client";
-import type { OutreachEditableLead } from "@/components/outreach/outreach-editor-sheet";
+import {
+  EnrichmentWorkspace,
+  InitialOutreachPanel,
+  QualificationPanel,
+  type PreSendLead,
+  type PreSendSequence,
+} from "@/components/outreach/pre-send-stage-panels";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast-provider";
 
-type Tab = "pipeline" | "enriched" | "log";
+type Tab = "enrichment" | "qualification" | "initial" | "log";
 
 const TAB_CONFIG: Array<{
   id: Tab;
   label: string;
   description: string;
-  icon: typeof MessageSquareText;
+  icon: typeof Brain;
 }> = [
   {
-    id: "pipeline",
-    label: "Pipeline",
-    description: "Manual outreach candidates that have not been sent yet.",
-    icon: MessageSquareText,
+    id: "enrichment",
+    label: "Enrichment",
+    description: "Prepare intake leads and surface what is still missing before qualification.",
+    icon: Brain,
   },
   {
-    id: "enriched",
-    label: "Enriched",
-    description: "Reviewed leads ready for manual send or automation queueing.",
-    icon: Brain,
+    id: "qualification",
+    label: "Qualification",
+    description: "Make the pre-send approval explicit before anything enters first-touch.",
+    icon: ShieldCheck,
+  },
+  {
+    id: "initial",
+    label: "Initial Outreach",
+    description: "Own only unsent first-touch work. No follow-up lifecycle appears here.",
+    icon: MailCheck,
   },
   {
     id: "log",
     label: "Email Log",
-    description: "Sent history and one-click follow-up actions.",
+    description: "Reference sent history and thread activity without changing stage ownership.",
     icon: Inbox,
   },
 ];
 
-type EnrichedLead = {
-  id: number;
-  businessName: string;
-  city: string;
-  niche: string;
-  email: string | null;
-  contactName: string | null;
-  axiomScore: number | null;
-  axiomTier: string | null;
-  websiteStatus: string | null;
-  enrichedAt: string | null;
-  enrichmentData: string | null;
-  outreachStatus: string | null;
-};
-
 type AutomationOverview = {
-  settings: {
-    enabled: boolean;
-    globalPaused: boolean;
-    sendWindowStartHour: number;
-    sendWindowStartMinute: number;
-    sendWindowEndHour: number;
-    sendWindowEndMinute: number;
-    initialDelayMinMinutes: number;
-    initialDelayMaxMinutes: number;
-    followUp1BusinessDays: number;
-    followUp2BusinessDays: number;
-    schedulerClaimBatch: number;
-    replySyncStaleMinutes: number;
-  };
-  ready: Array<{
-    id: number;
-    businessName: string;
-    city: string;
-    niche: string;
-    email: string | null;
-  }>;
-  mailboxes: Array<{
-    id: string;
-    userId: string;
-    gmailAddress: string;
-    label: string | null;
-    status: string;
-    timezone: string;
-    dailyLimit: number;
-    hourlyLimit: number;
-    minDelaySeconds: number;
-    maxDelaySeconds: number;
-    warmupLevel: number;
-    sentToday: number;
-    sentThisHour: number;
-  }>;
-  queued: Array<{
-    id: string;
-    leadId: number;
-    status: string;
-    currentStep: string;
-    nextScheduledAt: string | null;
-    lastSentAt: string | null;
-    stopReason: string | null;
-    lead?: EnrichedLead | null;
-    mailbox?: {
-      id: string;
-      gmailAddress: string;
-      label: string | null;
-      status: string;
-      timezone: string;
-      dailyLimit: number;
-      hourlyLimit: number;
-      minDelaySeconds: number;
-      maxDelaySeconds: number;
-      warmupLevel: number;
-      sentToday: number;
-      sentThisHour: number;
-    } | null;
-    nextStep?: { stepType: string; scheduledFor: string } | null;
-  }>;
-  active: Array<any>;
-  finished: Array<any>;
+  ready: Array<PreSendLead>;
+  sequences: Array<PreSendSequence>;
   recentRuns: Array<any>;
   stats: {
     ready: number;
@@ -137,20 +71,25 @@ type AutomationOverview = {
 };
 
 type OutreachHubProps = {
-  initialPipelineLeads: OutreachEditableLead[];
-  initialEnrichedLeads: EnrichedLead[];
+  initialEnrichmentLeads: PreSendLead[];
+  initialQualificationLeads: PreSendLead[];
+  initialReadyLeads: PreSendLead[];
   initialAutomationOverview: AutomationOverview;
+  initialTab?: Tab;
 };
 
 export function OutreachHub({
-  initialPipelineLeads,
-  initialEnrichedLeads,
+  initialEnrichmentLeads,
+  initialQualificationLeads,
+  initialReadyLeads,
   initialAutomationOverview,
+  initialTab = "enrichment",
 }: OutreachHubProps) {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<Tab>("pipeline");
-  const [pipelineLeads, setPipelineLeads] = useState<OutreachEditableLead[]>(initialPipelineLeads);
-  const [enrichedLeads, setEnrichedLeads] = useState<EnrichedLead[]>(initialEnrichedLeads);
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
+  const [enrichmentLeads, setEnrichmentLeads] = useState<PreSendLead[]>(initialEnrichmentLeads);
+  const [qualificationLeads, setQualificationLeads] = useState<PreSendLead[]>(initialQualificationLeads);
+  const [readyLeads, setReadyLeads] = useState<PreSendLead[]>(initialReadyLeads);
   const [automationOverview, setAutomationOverview] = useState(initialAutomationOverview);
   const [gmailConnected, setGmailConnected] = useState(false);
   const [sendingLeadIds, setSendingLeadIds] = useState<number[] | null>(null);
@@ -162,43 +101,37 @@ export function OutreachHub({
       .catch(() => {});
   }, []);
 
-  const refreshEnrichedLeads = useCallback(async () => {
+  const refreshEnrichmentStage = useCallback(async () => {
     try {
-      const res = await fetch("/api/outreach/enriched-leads");
-      if (res.ok) {
-        const data = await res.json();
-        setEnrichedLeads(data.leads || []);
-      }
-    } catch {
-      // Leave stale UI in place if refresh fails.
-    }
-  }, []);
+      const [enrichmentRes, qualificationRes, initialRes, automationRes] = await Promise.all([
+        fetch("/api/outreach/enrichment-stage"),
+        fetch("/api/outreach/qualification-stage"),
+        fetch("/api/outreach/pipeline"),
+        fetch("/api/outreach/automation/overview"),
+      ]);
 
-  const refreshAutomationOverview = useCallback(async () => {
-    try {
-      const res = await fetch("/api/outreach/automation/overview");
-      if (res.ok) {
-        const data = await res.json();
+      if (enrichmentRes.ok) {
+        const data = await enrichmentRes.json();
+        setEnrichmentLeads(data.leads || []);
+      }
+      if (qualificationRes.ok) {
+        const data = await qualificationRes.json();
+        setQualificationLeads(data.leads || []);
+      }
+      if (initialRes.ok) {
+        const data = await initialRes.json();
+        setReadyLeads(data.leads || []);
+      }
+      if (automationRes.ok) {
+        const data = await automationRes.json();
         setAutomationOverview(data);
       }
     } catch {
-      // Leave stale UI in place if refresh fails.
+      // Keep current state if refresh fails.
     }
   }, []);
 
-  const refreshPipelineLeads = useCallback(async () => {
-    try {
-      const res = await fetch("/api/outreach/pipeline");
-      if (res.ok) {
-        const data = await res.json();
-        setPipelineLeads(data.leads || []);
-      }
-    } catch {
-      // Leave stale UI in place if refresh fails.
-    }
-  }, []);
-
-  const handleEnrichFromPipeline = useCallback(
+  const handleEnrichRequested = useCallback(
     async (leadIds: number[]) => {
       try {
         const res = await fetch("/api/outreach/enrich", {
@@ -207,19 +140,16 @@ export function OutreachHub({
           body: JSON.stringify({ leadIds }),
         });
 
+        const data = await res.json().catch(() => null);
         if (!res.ok) {
-          const data = await res.json().catch(() => null);
           throw new Error(data?.error || "Enrichment failed");
         }
 
-        const data = await res.json();
-        toast(`Enriched ${data.enriched} lead${data.enriched !== 1 ? "s" : ""} with AI`, {
+        toast(`Enriched ${data?.enriched || leadIds.length} lead${leadIds.length === 1 ? "" : "s"}`, {
           type: "success",
           icon: "note",
         });
-
-        await refreshEnrichedLeads();
-        setActiveTab("enriched");
+        await refreshEnrichmentStage();
       } catch (error) {
         toast(error instanceof Error ? error.message : "Enrichment failed", {
           type: "error",
@@ -227,7 +157,7 @@ export function OutreachHub({
         });
       }
     },
-    [refreshEnrichedLeads, toast],
+    [refreshEnrichmentStage, toast],
   );
 
   const handleSendRequested = useCallback((leadIds: number[]) => {
@@ -235,64 +165,52 @@ export function OutreachHub({
   }, []);
 
   const handleSendComplete = useCallback(
-    (sentLeadIds: number[]) => {
+    async () => {
       setSendingLeadIds(null);
-      if (sentLeadIds.length > 0) {
-        setPipelineLeads((prev) => prev.filter((lead) => !sentLeadIds.includes(lead.id)));
-      }
-      void refreshEnrichedLeads();
-      void refreshPipelineLeads();
-      void refreshAutomationOverview();
+      toast("First touch sent. This lead is now managed in Follow-Up.", {
+        type: "success",
+        icon: "note",
+      });
+      await refreshEnrichmentStage();
     },
-    [refreshAutomationOverview, refreshEnrichedLeads, refreshPipelineLeads],
+    [refreshEnrichmentStage, toast],
   );
 
   const handleQueueRequested = useCallback(
     async (leadIds: number[]) => {
-      try {
-        const res = await fetch("/api/outreach/automation/queue", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ leadIds }),
-        });
+      const res = await fetch("/api/outreach/automation/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds }),
+      });
 
-        const data = await res.json().catch(() => null);
-        if (!res.ok) {
-          throw new Error(data?.error || "Failed to queue leads for automation");
-        }
-
-        const queued = data?.queued?.length || 0;
-        const skipped = data?.skipped?.length || 0;
-        toast(
-          queued > 0
-            ? `Queued ${queued} lead${queued !== 1 ? "s" : ""}${skipped > 0 ? `, skipped ${skipped}` : ""}`
-            : `No leads were queued${skipped > 0 ? `, skipped ${skipped}` : ""}`,
-          { type: queued > 0 ? "success" : "error", icon: "note" },
-        );
-
-        await refreshAutomationOverview();
-        await refreshPipelineLeads();
-      } catch (error) {
-        toast(error instanceof Error ? error.message : "Failed to queue leads", {
-          type: "error",
-          icon: "note",
-        });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to queue leads for automation");
       }
+
+      const queued = data?.queued?.length || 0;
+      const skipped = data?.skipped?.length || 0;
+      toast(
+        queued > 0
+          ? `Queued ${queued} first-touch lead${queued === 1 ? "" : "s"}${skipped > 0 ? `, skipped ${skipped}` : ""}`
+          : `No leads were queued${skipped > 0 ? `, skipped ${skipped}` : ""}`,
+        { type: queued > 0 ? "success" : "error", icon: "note" },
+      );
+      await refreshEnrichmentStage();
     },
-    [refreshAutomationOverview, refreshPipelineLeads, toast],
+    [refreshEnrichmentStage, toast],
   );
 
-  const queuedLeadIds = useMemo(
-    () => [
-      ...automationOverview.queued.map((sequence) => sequence.leadId),
-      ...automationOverview.active.map((sequence: { leadId: number }) => sequence.leadId),
-    ],
-    [automationOverview.active, automationOverview.queued],
+  const preSendSequences = useMemo(
+    () => automationOverview.sequences.filter((sequence) => !sequence.hasSentAnyStep),
+    [automationOverview.sequences],
   );
 
   const tabCounts: Record<Tab, number | null> = {
-    pipeline: pipelineLeads.length,
-    enriched: enrichedLeads.length,
+    enrichment: enrichmentLeads.length,
+    qualification: qualificationLeads.length,
+    initial: readyLeads.length + preSendSequences.length,
     log: null,
   };
   const activeTabConfig = TAB_CONFIG.find((tab) => tab.id === activeTab) || TAB_CONFIG[0];
@@ -306,27 +224,27 @@ export function OutreachHub({
           <div className="max-w-3xl">
             <div className="flex items-center gap-2 text-sm font-medium text-white">
               <Sparkles className="h-4 w-4 text-blue-400" />
-              Automation is now its own workspace
+              Outreach now owns the full pre-send pipeline
             </div>
             <p className="mt-2 text-sm leading-6 text-zinc-400">
-              Use Outreach for enrichment, manual sends, and the email log. Use Automation for automatic sending, scheduler status, mailbox load, and blocked sequences.
+              Move leads from enrichment into qualification, approve only the right records for first-touch, then let Follow-Up automation take over after the first send lands.
             </p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs text-zinc-400">
               <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5">
-                {automationOverview.stats.ready} ready to queue
+                {enrichmentLeads.length} in enrichment
               </span>
               <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5">
-                {automationOverview.stats.scheduledToday} scheduled today
+                {qualificationLeads.length} in qualification
               </span>
               <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5">
-                {automationOverview.stats.blocked} blocked
+                {automationOverview.stats.ready} ready for first touch
               </span>
             </div>
           </div>
 
           <Button asChild className="rounded-full bg-white px-4 text-sm text-black hover:bg-zinc-200">
             <Link href="/automation">
-              Open Automation
+              Open Follow-Up Console
               <ArrowRight className="h-4 w-4" />
             </Link>
           </Button>
@@ -334,7 +252,7 @@ export function OutreachHub({
       </div>
 
       <div className="rounded-[24px] border border-white/[0.06] bg-white/[0.02] p-2">
-        <div className="grid gap-2 md:grid-cols-3">
+        <div className="grid gap-2 md:grid-cols-4">
           {TAB_CONFIG.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -353,11 +271,13 @@ export function OutreachHub({
                   <div className="flex items-center gap-2 text-sm font-medium text-white">
                     <Icon
                       className={`h-4 w-4 ${
-                        tab.id === "pipeline"
+                        tab.id === "enrichment"
                           ? "text-cyan-400"
-                          : tab.id === "enriched"
+                          : tab.id === "qualification"
                             ? "text-purple-400"
-                            : "text-emerald-400"
+                            : tab.id === "initial"
+                              ? "text-emerald-400"
+                              : "text-zinc-300"
                       }`}
                     />
                     {tab.label}
@@ -390,22 +310,31 @@ export function OutreachHub({
           )}
         </div>
 
-        {activeTab === "pipeline" && (
-          <OutreachClient
-            initialLeads={pipelineLeads}
-            enableSelection
-            onEnrichRequested={handleEnrichFromPipeline}
+        {activeTab === "enrichment" && (
+          <EnrichmentWorkspace
+            leads={enrichmentLeads}
+            onEnrichRequested={handleEnrichRequested}
+            onOpenQualification={() => setActiveTab("qualification")}
           />
         )}
 
-        {activeTab === "enriched" && (
-          <EnrichmentPanel
-            leads={enrichedLeads}
+        {activeTab === "qualification" && (
+          <QualificationPanel
+            leads={qualificationLeads}
+            onRefresh={refreshEnrichmentStage}
+            onReEnrich={handleEnrichRequested}
+            onOpenEnrichment={() => setActiveTab("enrichment")}
+          />
+        )}
+
+        {activeTab === "initial" && (
+          <InitialOutreachPanel
+            leads={readyLeads}
+            sequences={preSendSequences}
             gmailConnected={gmailConnected}
             onSendRequested={handleSendRequested}
             onQueueRequested={handleQueueRequested}
-            onLeadsUpdated={refreshEnrichedLeads}
-            queuedLeadIds={queuedLeadIds}
+            onRefresh={refreshEnrichmentStage}
           />
         )}
 

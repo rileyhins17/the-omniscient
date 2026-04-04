@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { writeAuditEvent } from "@/lib/audit";
 import { getClientIp } from "@/lib/cloudflare";
 import { getPrisma } from "@/lib/prisma";
-import { isOutreachChannel, isOutreachStatus } from "@/lib/outreach";
+import { isContactedOutreachStatus, isOutreachChannel, isOutreachStatus } from "@/lib/outreach";
 import { requireApiSession } from "@/lib/session";
 
 function parseNullableDate(value: unknown) {
@@ -112,7 +112,7 @@ export async function PATCH(
       updates.lastContactedAt = parseNullableDate(body.lastContactedAt);
     }
 
-    const isContacted = nextStatus !== "NOT_CONTACTED";
+    const isContacted = isContactedOutreachStatus(nextStatus);
     const statusChanged = nextStatus !== (existingLead.outreachStatus || "NOT_CONTACTED");
     const channelChanged =
       body.outreachChannel !== undefined && (nextChannel ?? null) !== (existingLead.outreachChannel ?? null);

@@ -5,6 +5,7 @@ import {
 import { getValidAccessToken, getGmailThreadMetadata, sendGmailEmail } from "@/lib/gmail";
 import { hasValidPipelineEmail, isLeadOutreachEligible } from "@/lib/lead-qualification";
 import { getPrisma } from "@/lib/prisma";
+import { READY_FOR_FIRST_TOUCH_STATUS } from "@/lib/outreach";
 import type {
   GmailConnectionRecord,
   LeadRecord,
@@ -691,7 +692,7 @@ async function listAutomationReadyLeads(prisma: PrismaLike) {
   return leads
     .filter((lead) => {
       if (activeLeadIds.has(lead.id)) return false;
-      if (lead.outreachStatus && lead.outreachStatus !== "NOT_CONTACTED") return false;
+      if (lead.outreachStatus !== READY_FOR_FIRST_TOUCH_STATUS) return false;
       if (!isLeadOutreachEligible(lead)) return false;
       if (!lead.enrichmentData) return false;
       return true;
@@ -924,6 +925,14 @@ export async function queueLeadsForAutomation(input: {
 
     if (!isLeadOutreachEligible(lead)) {
       result.skipped.push({ leadId, reason: "Lead is not automation-ready yet" });
+      continue;
+    }
+
+    if (lead.outreachStatus !== READY_FOR_FIRST_TOUCH_STATUS) {
+      result.skipped.push({
+        leadId,
+        reason: "Lead must be marked ready for first touch before queueing",
+      });
       continue;
     }
 

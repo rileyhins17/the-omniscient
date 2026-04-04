@@ -9,6 +9,12 @@ export const OUTREACH_STATUS_OPTIONS = [
     classes: "border-white/10 bg-white/5 text-zinc-300",
   },
   {
+    value: "READY_FOR_FIRST_TOUCH",
+    label: "Ready for First Touch",
+    shortLabel: "Ready",
+    classes: "border-cyan-500/20 bg-cyan-500/10 text-cyan-300",
+  },
+  {
     value: "OUTREACHED",
     label: "Outreached",
     shortLabel: "Outreached",
@@ -56,6 +62,7 @@ export const OUTREACH_CHANNEL_OPTIONS = [
 export type OutreachStatus = (typeof OUTREACH_STATUS_OPTIONS)[number]["value"];
 export type OutreachChannel = (typeof OUTREACH_CHANNEL_OPTIONS)[number]["value"];
 export const OUTREACH_AUTO_INCLUDE_MIN_SCORE = AXIOM_OUTREACH_MIN_SCORE;
+export const READY_FOR_FIRST_TOUCH_STATUS = "READY_FOR_FIRST_TOUCH" as const;
 
 export type OutreachLeadFields = {
   outreachStatus: string | null;
@@ -86,7 +93,7 @@ export function getOutreachChannelLabel(channel: string | null | undefined) {
 }
 
 export function isContactedOutreachStatus(status: string | null | undefined) {
-  return !!status && status !== "NOT_CONTACTED";
+  return !!status && status !== "NOT_CONTACTED" && status !== READY_FOR_FIRST_TOUCH_STATUS;
 }
 
 export function isLeadAutoIncludedInOutreachHub(input: {
@@ -105,7 +112,7 @@ export function getOutreachPipelineLeadWhere() {
       { axiomScore: { gt: OUTREACH_AUTO_INCLUDE_MIN_SCORE } },
       { email: { not: null } },
       {
-        OR: [{ outreachStatus: "NOT_CONTACTED" }, { outreachStatus: null }],
+        OR: [{ outreachStatus: READY_FOR_FIRST_TOUCH_STATUS }],
       },
     ],
   };

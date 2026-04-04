@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 
-import { isLeadOutreachEligible } from "@/lib/lead-qualification";
+import { isContactedOutreachStatus, READY_FOR_FIRST_TOUCH_STATUS } from "@/lib/outreach";
 import { getActiveAutomationLeadIds } from "@/lib/outreach-automation";
 import { getPrisma } from "@/lib/prisma";
-import { getOutreachPipelineLeadWhere } from "@/lib/outreach";
 import { requireApiSession } from "@/lib/session";
 
 export async function GET(request: Request) {
@@ -16,21 +15,23 @@ export async function GET(request: Request) {
     const prisma = getPrisma();
     const automationLeadIds = new Set(await getActiveAutomationLeadIds());
     const leads = await prisma.lead.findMany({
-      where: getOutreachPipelineLeadWhere(),
+      where: {
+        isArchived: false,
+      },
       orderBy: {
-        axiomScore: "desc",
+        createdAt: "desc",
       },
       select: {
         id: true,
         businessName: true,
         city: true,
         niche: true,
-        contactName: true,
         phone: true,
         email: true,
         emailConfidence: true,
         emailFlags: true,
         emailType: true,
+        contactName: true,
         axiomScore: true,
         axiomTier: true,
         websiteStatus: true,
@@ -40,21 +41,22 @@ export async function GET(request: Request) {
         source: true,
         createdAt: true,
         lastUpdated: true,
-        outreachChannel: true,
-        firstContactedAt: true,
-        lastContactedAt: true,
-        nextFollowUpDue: true,
         outreachNotes: true,
       },
     });
 
     return NextResponse.json({
-      leads: leads.filter((lead) => !automationLeadIds.has(lead.id) && isLeadOutreachEligible(lead)),
+      leads: leads.filter((lead) => {
+        if (automationLeadIds.has(lead.id)) return false;
+        if (lead.outreachStatus === READY_FOR_FIRST_TOUCH_STATUS) return false;
+        if (isContactedOutreachStatus(lead.outreachStatus)) return false;
+        return Boolean(lead.source) || !lead.enrichedAt || !lead.enrichmentData;
+      }),
     });
   } catch (error: any) {
-    console.error("Pipeline leads fetch error:", error);
+    console.error("Enrichment stage fetch error:", error);
     return NextResponse.json(
-      { error: error.message || "Failed to fetch pipeline leads" },
+      { error: error.message || "Failed to fetch enrichment stage leads" },
       { status: 500 },
     );
   }

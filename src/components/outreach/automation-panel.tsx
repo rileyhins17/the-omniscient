@@ -13,9 +13,7 @@ import {
   PlayCircle,
   Power,
   RefreshCw,
-  Send,
   ShieldAlert,
-  Sparkles,
   Square,
 } from "lucide-react";
 
@@ -253,8 +251,6 @@ export function AutomationPanel({ overview, onOverviewUpdated }: AutomationPanel
   const { toast } = useToast();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [settingsDraft, setSettingsDraft] = useState(overview.settings);
-  const [selectedReadyIds, setSelectedReadyIds] = useState<Set<number>>(new Set());
-  const [search, setSearch] = useState("");
   const [manualActionSummary, setManualActionSummary] = useState<ManualActionSummary>(null);
   const [, setTick] = useState(0);
 
@@ -294,30 +290,17 @@ export function AutomationPanel({ overview, onOverviewUpdated }: AutomationPanel
     }
   };
 
-  const readyLeads = useMemo(() => {
-    if (!search.trim()) return overview.ready;
-    const query = search.toLowerCase();
-    return overview.ready.filter(
-      (lead) =>
-        lead.businessName.toLowerCase().includes(query) ||
-        lead.city.toLowerCase().includes(query) ||
-        lead.niche.toLowerCase().includes(query) ||
-        (lead.email || "").toLowerCase().includes(query),
-    );
-  }, [overview.ready, search]);
-
-  const selectedReadyCount = selectedReadyIds.size;
-  const allReadySelected = readyLeads.length > 0 && readyLeads.every((lead) => selectedReadyIds.has(lead.id));
   const scheduledSequences = useMemo(
     () =>
       overview.sequences.filter(
         (sequence) =>
-          sequence.state === "QUEUED" || sequence.state === "WAITING" || sequence.state === "SENDING",
+          sequence.hasSentAnyStep &&
+          (sequence.state === "WAITING" || sequence.state === "SENDING"),
       ),
     [overview.sequences],
   );
   const blockedSequences = useMemo(
-    () => overview.sequences.filter((sequence) => sequence.state === "BLOCKED"),
+    () => overview.sequences.filter((sequence) => sequence.state === "BLOCKED" && sequence.hasSentAnyStep),
     [overview.sequences],
   );
   const stoppedSequences = useMemo(() => overview.finished.slice(0, 8), [overview.finished]);
@@ -333,46 +316,6 @@ export function AutomationPanel({ overview, onOverviewUpdated }: AutomationPanel
     }
     return Array.from(groups.entries());
   }, [blockedSequences]);
-
-  const toggleAllReady = () => {
-    if (allReadySelected) {
-      setSelectedReadyIds(new Set());
-      return;
-    }
-    setSelectedReadyIds(new Set(readyLeads.map((lead) => lead.id)));
-  };
-
-  const toggleReadyLead = (leadId: number) => {
-    setSelectedReadyIds((previous) => {
-      const next = new Set(previous);
-      if (next.has(leadId)) next.delete(leadId);
-      else next.add(leadId);
-      return next;
-    });
-  };
-
-  const queueLeadIds = async (leadIds: number[]) => {
-    if (leadIds.length === 0) return;
-    const data = await executeAction<{ queued?: Array<unknown>; skipped?: Array<unknown> }>("queue", () =>
-      fetch("/api/outreach/automation/queue", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leadIds }),
-      }),
-    );
-    if (!data) return;
-
-    const queuedCount = data.queued?.length || 0;
-    const skippedCount = data.skipped?.length || 0;
-    toast(
-      queuedCount > 0
-        ? `Queued ${queuedCount} lead${queuedCount === 1 ? "" : "s"} for automatic sending${skippedCount > 0 ? `, skipped ${skippedCount}` : ""}`
-        : `No leads were queued${skippedCount > 0 ? `, skipped ${skippedCount}` : ""}`,
-      { type: queuedCount > 0 ? "success" : "error", icon: "note" },
-    );
-    setSelectedReadyIds(new Set());
-    await onOverviewUpdated();
-  };
 
   const handleRunScheduler = async () => {
     const data = await executeAction<ManualRunResult>("run", () =>
@@ -482,7 +425,7 @@ export function AutomationPanel({ overview, onOverviewUpdated }: AutomationPanel
             <div>
               <h1 className="text-3xl font-semibold tracking-tight text-white md:text-4xl">Automatic outreach, without the mystery.</h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-zinc-400">
-                Queueing is enough. The engine schedules and sends on its own during business hours, keeps each lead on one mailbox thread, and shows exactly why anything is waiting or blocked.
+                Automation owns the post-send lifecycle only. Once a first touch lands, the engine keeps the thread moving during business hours and shows exactly why any follow-up is waiting or blocked.
               </p>
             </div>
           </div>
@@ -520,9 +463,9 @@ export function AutomationPanel({ overview, onOverviewUpdated }: AutomationPanel
             <div className="mt-1 text-xs text-emerald-300">{nextSendCountdown}</div>
           </div>
           <div className="rounded-2xl border border-white/[0.06] bg-black/20 px-4 py-3">
-            <div className="text-[11px] text-zinc-500">Ready to queue</div>
-            <div className="mt-1 text-base font-semibold text-white">{overview.stats.ready}</div>
-            <div className="mt-1 text-xs text-zinc-500">qualified and email-ready</div>
+            <div className="text-[11px] text-zinc-500">Active follow-up</div>
+            <div className="mt-1 text-base font-semibold text-white">{overview.stats.waiting + overview.stats.sending}</div>
+            <div className="mt-1 text-xs text-zinc-500">already post-send</div>
           </div>
           <div className="rounded-2xl border border-white/[0.06] bg-black/20 px-4 py-3">
             <div className="text-[11px] text-zinc-500">Scheduled today</div>
@@ -542,121 +485,18 @@ export function AutomationPanel({ overview, onOverviewUpdated }: AutomationPanel
       <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="space-y-6">
           <div className="rounded-[28px] border border-white/[0.06] bg-white/[0.02] p-5">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-sm font-medium text-white">
-                  <Sparkles className="h-4 w-4 text-cyan-400" />
-                  Ready to queue
-                </div>
-                <p className="mt-2 text-sm leading-6 text-zinc-400">
-                  These leads are already qualified for automatic sending. Queue them here and the engine handles the rest.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={toggleAllReady}
-                  className="rounded-full border border-white/10 px-3 text-xs text-zinc-300 hover:bg-white/[0.04]"
-                >
-                  {allReadySelected ? "Deselect all" : "Select all"}
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => void queueLeadIds(Array.from(selectedReadyIds))}
-                  disabled={selectedReadyCount === 0 || busyKey === "queue"}
-                  className="rounded-full bg-white px-4 text-xs text-black hover:bg-zinc-200"
-                >
-                  {busyKey === "queue" ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-                  Queue selected
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => void queueLeadIds(overview.ready.map((lead) => lead.id))}
-                  disabled={overview.ready.length === 0 || busyKey === "queue"}
-                  className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 text-xs text-emerald-200 hover:bg-emerald-500/15"
-                >
-                  Queue all ready
-                </Button>
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-zinc-400">
-                {overview.ready.length} automation-ready lead{overview.ready.length === 1 ? "" : "s"}
-              </div>
-              <div className="w-full max-w-sm">
-                <Input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search ready leads"
-                  className="border-white/10 bg-black/30"
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              {readyLeads.length > 0 ? (
-                readyLeads.slice(0, 12).map((lead) => {
-                  const selected = selectedReadyIds.has(lead.id);
-                  return (
-                    <button
-                      key={lead.id}
-                      onClick={() => toggleReadyLead(lead.id)}
-                      className={`flex w-full items-start justify-between gap-4 rounded-[22px] border px-4 py-4 text-left transition-all ${
-                        selected
-                          ? "border-emerald-500/25 bg-emerald-500/[0.05]"
-                          : "border-white/[0.06] bg-black/20 hover:border-white/[0.12]"
-                      }`}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium text-white">{lead.businessName}</span>
-                          {typeof lead.axiomScore === "number" && (
-                            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] text-zinc-300">
-                              Score {lead.axiomScore}
-                            </span>
-                          )}
-                          {lead.axiomTier && (
-                            <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] text-zinc-300">
-                              Tier {lead.axiomTier}
-                            </span>
-                          )}
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500">
-                          <span>{lead.city}</span>
-                          <span>{lead.niche}</span>
-                          <span>{lead.email || "No email"}</span>
-                        </div>
-                      </div>
-                      <div className={`rounded-full border px-3 py-1 text-[11px] ${selected ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200" : "border-white/10 bg-white/[0.04] text-zinc-300"}`}>
-                        {selected ? "Queued next" : "Select"}
-                      </div>
-                    </button>
-                  );
-                })
-              ) : (
-                <div className="rounded-2xl border border-dashed border-white/10 px-4 py-10 text-sm text-zinc-500">
-                  No automation-ready leads are waiting right now.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-[28px] border border-white/[0.06] bg-white/[0.02] p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2 text-sm font-medium text-white">
                   <Clock3 className="h-4 w-4 text-blue-400" />
-                  Scheduled and active
+                  Active follow-up
                 </div>
                 <p className="mt-2 text-sm leading-6 text-zinc-400">
-                  Everything the engine is actively working through, with the next send time and assigned mailbox.
+                  Only post-send sequences live here, with the next follow-up time and assigned mailbox.
                 </p>
               </div>
               <div className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-zinc-400">
-                {scheduledSequences.length} live sequence{scheduledSequences.length === 1 ? "" : "s"}
+                {scheduledSequences.length} follow-up sequence{scheduledSequences.length === 1 ? "" : "s"}
               </div>
             </div>
 
@@ -671,7 +511,7 @@ export function AutomationPanel({ overview, onOverviewUpdated }: AutomationPanel
                             {sequence.lead?.businessName || `Lead #${sequence.id}`}
                           </span>
                           <span className={`rounded-full border px-2 py-0.5 text-[11px] ${getStateChipClasses(sequence.state)}`}>
-                            {sequence.state === "QUEUED" ? "Initial queued" : sequence.state}
+                            {sequence.state === "WAITING" ? "Waiting for follow-up" : sequence.state}
                           </span>
                           <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[11px] text-zinc-400">
                             {formatStepLabel(sequence.currentStep)}

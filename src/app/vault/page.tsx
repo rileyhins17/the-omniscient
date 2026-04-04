@@ -1,4 +1,4 @@
-import { Database, Globe, Mail } from "lucide-react";
+import { Database, Layers, Mail } from "lucide-react";
 
 import VaultDataTable from "@/components/VaultDataTable";
 import { Badge } from "@/components/ui/badge";
@@ -6,6 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { StatCard } from "@/components/ui/stat-card";
 import { ToastProvider } from "@/components/ui/toast-provider";
 import { hasValidPipelineEmail, isLeadOutreachEligible } from "@/lib/lead-qualification";
+import { getLifecycleStageLabel, isIntakeLead } from "@/lib/pipeline-lifecycle";
+import { getActiveAutomationLeadIds } from "@/lib/outreach-automation";
 import { getPrisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 
@@ -13,12 +15,25 @@ export default async function VaultPage() {
   await requireSession();
 
   const prisma = getPrisma();
+  const activeAutomationLeadIds = new Set(await getActiveAutomationLeadIds().catch(() => []));
   const leads = await prisma.lead.findMany({
     orderBy: { createdAt: "desc" },
   });
 
   const totalLeads = leads.length;
-  const missingWebsite = leads.filter((lead) => lead.websiteStatus === "MISSING").length;
+  const intakeLeads = leads.filter((lead) => isIntakeLead(lead)).length;
+  const preSendLeads = leads.filter(
+    (lead) =>
+      getLifecycleStageLabel({
+        enrichedAt: lead.enrichedAt,
+        enrichmentData: lead.enrichmentData,
+        hasActiveSequence: activeAutomationLeadIds.has(lead.id),
+        hasSentAnyStep: false,
+        outreachStatus: lead.outreachStatus,
+        source: lead.source,
+      }) !== "Follow-Up",
+  ).length;
+  const followUpLeads = leads.filter((lead) => activeAutomationLeadIds.has(lead.id)).length;
   const withEmail = leads.filter((lead) => hasValidPipelineEmail(lead)).length;
   const outreachReady = leads.filter((lead) => isLeadOutreachEligible(lead)).length;
 
@@ -43,23 +58,23 @@ export default async function VaultPage() {
         <StatCard
           label="Total Leads"
           value={totalLeads}
-          subtitle="records in the current database"
+          subtitle="records across the full lifecycle"
           icon={<Database />}
           iconColor="text-emerald-400"
         />
         <StatCard
-          label="Missing Website"
-          value={missingWebsite}
-          subtitle="strong website rebuild targets"
-          icon={<Globe />}
-          iconColor="text-amber-400"
+          label="Intake + Pre-Send"
+          value={preSendLeads}
+          subtitle={`${intakeLeads} still in intake`}
+          icon={<Layers />}
+          iconColor="text-cyan-400"
         />
         <StatCard
-          label="Contactable"
-          value={withEmail}
-          subtitle={`${outreachReady} outreach-ready`}
+          label="Follow-Up + Contactable"
+          value={followUpLeads}
+          subtitle={`${withEmail} valid email · ${outreachReady} outreach-ready`}
           icon={<Mail />}
-          iconColor="text-cyan-400"
+          iconColor="text-purple-400"
         />
       </section>
 
@@ -72,7 +87,7 @@ export default async function VaultPage() {
                 Lead database
               </CardTitle>
               <CardDescription className="mt-1 text-sm text-zinc-400">
-                Filter, sort, review, and export qualified records.
+                Filter, sort, review, and export records without turning Vault into the main operations surface.
               </CardDescription>
             </div>
             <Badge
