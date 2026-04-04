@@ -11,9 +11,24 @@ export type ScrapeJobStatus =
 export type ScrapeJobEventPayload = Record<string, unknown> & {
   _done?: boolean;
   error?: string;
+  eventId?: number;
   jobId?: string;
   jobStatus?: ScrapeJobStatus;
   message?: string;
+  scoreUpdate?: {
+    axiomScore: number;
+    tier: string;
+    businessName: string;
+    breakdown: unknown;
+    websiteStatus: string;
+    websiteQuality: string;
+    websiteLabel: string;
+    outreachEligible: boolean;
+    hasValidEmail: boolean;
+    emailGateApplied: boolean;
+    fitLabel: string;
+    reasonSummary: string[];
+  };
   progress?: number;
   stats?: {
     avgScore?: number;

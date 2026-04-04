@@ -20,7 +20,7 @@ const envSchema = z.object({
   RATE_LIMIT_MAX_SCRAPE: z.coerce.number().int().nonnegative().default(3),
   RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().int().positive().default(900),
   SCRAPE_CONCURRENCY_LIMIT: z.coerce.number().int().positive().default(1),
-  SCRAPE_TIMEOUT_MS: z.coerce.number().int().positive().default(600000),
+  SCRAPE_TIMEOUT_MS: z.coerce.number().int().positive().default(1800000),
   WORKER_HEARTBEAT_STALE_MS: z.coerce.number().int().positive().default(60000),
 });
 

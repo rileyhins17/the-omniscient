@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { isLeadOutreachEligible } from "@/lib/lead-qualification";
 import { getActiveAutomationLeadIds } from "@/lib/outreach-automation";
 import { getPrisma } from "@/lib/prisma";
 import { getOutreachPipelineLeadWhere } from "@/lib/outreach";
@@ -27,6 +28,9 @@ export async function GET(request: Request) {
         contactName: true,
         phone: true,
         email: true,
+        emailConfidence: true,
+        emailFlags: true,
+        emailType: true,
         axiomScore: true,
         axiomTier: true,
         outreachStatus: true,
@@ -39,7 +43,7 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.json({
-      leads: leads.filter((lead) => !automationLeadIds.has(lead.id)),
+      leads: leads.filter((lead) => !automationLeadIds.has(lead.id) && isLeadOutreachEligible(lead)),
     });
   } catch (error: any) {
     console.error("Pipeline leads fetch error:", error);

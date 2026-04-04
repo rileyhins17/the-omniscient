@@ -1,14 +1,15 @@
-import { Database, Globe, Mail, Star } from "lucide-react";
+import { Database, Globe, Mail } from "lucide-react";
 
 import VaultDataTable from "@/components/VaultDataTable";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { ToastProvider } from "@/components/ui/toast-provider";
+import { hasValidPipelineEmail, isLeadOutreachEligible } from "@/lib/lead-qualification";
 import { getPrisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 
-export default async function TheVaultPage() {
+export default async function VaultPage() {
   await requireSession();
 
   const prisma = getPrisma();
@@ -18,86 +19,76 @@ export default async function TheVaultPage() {
 
   const totalLeads = leads.length;
   const missingWebsite = leads.filter((lead) => lead.websiteStatus === "MISSING").length;
-  const withEmail = leads.filter((lead) => lead.email && lead.email.length > 0).length;
-  const avgRating =
-    totalLeads > 0
-      ? parseFloat((leads.reduce((sum, lead) => sum + (lead.rating || 0), 0) / totalLeads).toFixed(1))
-      : 0;
+  const withEmail = leads.filter((lead) => hasValidPipelineEmail(lead)).length;
+  const outreachReady = leads.filter((lead) => isLeadOutreachEligible(lead)).length;
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <div className="animate-slide-up">
-        <h1 className="text-4xl font-extrabold tracking-tight">
-          <span className="gradient-text">The Vault</span>
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Your secured repository of AI-enriched, qualified business intelligence.
-        </p>
-      </div>
+      <section className="rounded-[28px] border border-white/[0.06] bg-[linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.015))] px-6 py-6">
+        <div className="max-w-3xl">
+          <p className="text-[11px] uppercase tracking-[0.32em] text-emerald-400/80">
+            Axiom Pipeline Engine
+          </p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white md:text-4xl">
+            Vault
+          </h1>
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
+            Browse the lead database, verify records, and export filtered slices without the extra
+            dashboard noise.
+          </p>
+        </div>
+      </section>
 
-      <div className="grid animate-slide-up grid-cols-2 gap-4 lg:grid-cols-4" style={{ animationDelay: "100ms" }}>
+      <section className="grid gap-4 md:grid-cols-3">
         <StatCard
-          glowClass="glow-emerald"
+          label="Total Leads"
+          value={totalLeads}
+          subtitle="records in the current database"
           icon={<Database />}
           iconColor="text-emerald-400"
-          label="Total Leads"
-          subtitle="targets acquired"
-          value={totalLeads}
         />
         <StatCard
-          glowClass="glow-red"
-          icon={<Globe />}
-          iconColor="text-red-400"
-          label="No Website"
-          subtitle="prime targets"
+          label="Missing Website"
           value={missingWebsite}
+          subtitle="strong website rebuild targets"
+          icon={<Globe />}
+          iconColor="text-amber-400"
         />
         <StatCard
-          glowClass="glow-cyan"
+          label="Contactable"
+          value={withEmail}
+          subtitle={`${outreachReady} outreach-ready`}
           icon={<Mail />}
           iconColor="text-cyan-400"
-          label="With Email"
-          subtitle="contactable leads"
-          value={withEmail}
         />
-        <StatCard
-          glowClass="glow-amber"
-          icon={<Star />}
-          iconColor="text-amber-400"
-          label="Avg Rating"
-          subtitle="stars average"
-          value={avgRating}
-        />
-      </div>
+      </section>
 
-      <div className="animate-slide-up" style={{ animationDelay: "200ms" }}>
-        <Card className="glass-strong overflow-hidden rounded-xl glow-emerald">
-          <CardHeader className="pb-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <CardTitle className="flex items-center gap-2 text-lg font-bold text-white sm:text-xl">
-                  <Database className="h-5 w-5 text-emerald-400" />
-                  Lead Intelligence Database
-                </CardTitle>
-                <CardDescription className="mt-1 text-xs">
-                  Filter, sort, and export your enriched targets.
-                </CardDescription>
-              </div>
-              <Badge
-                className="self-start border-emerald-900 bg-emerald-950/30 px-3 py-1 font-mono text-emerald-400"
-                variant="outline"
-              >
-                {leads.length} Records
-              </Badge>
+      <Card className="overflow-hidden rounded-[28px] border-white/[0.06] bg-white/[0.02]">
+        <CardHeader className="pb-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <CardTitle className="flex items-center gap-2 text-lg font-semibold text-white sm:text-xl">
+                <Database className="h-5 w-5 text-emerald-400" />
+                Lead database
+              </CardTitle>
+              <CardDescription className="mt-1 text-sm text-zinc-400">
+                Filter, sort, review, and export qualified records.
+              </CardDescription>
             </div>
-          </CardHeader>
-          <CardContent>
-            <ToastProvider>
-              <VaultDataTable initialLeads={JSON.parse(JSON.stringify(leads))} />
-            </ToastProvider>
-          </CardContent>
-        </Card>
-      </div>
+            <Badge
+              className="self-start border-white/10 bg-black/20 px-3 py-1 font-mono text-zinc-300"
+              variant="outline"
+            >
+              {leads.length} records
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <ToastProvider>
+            <VaultDataTable initialLeads={JSON.parse(JSON.stringify(leads))} />
+          </ToastProvider>
+        </CardContent>
+      </Card>
     </div>
   );
 }

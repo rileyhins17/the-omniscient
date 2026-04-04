@@ -56,9 +56,9 @@ function SignInForm() {
         </div>
         <Card className="w-full glass-strong border-white/10">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold">Axiom Ops Sign In</CardTitle>
+          <CardTitle className="text-2xl font-bold">Axiom Pipeline Engine</CardTitle>
           <CardDescription>
-            Sign in to access the protected Omniscient dashboard.
+            Sign in to access the protected Axiom operations workspace.
           </CardDescription>
         </CardHeader>
         <CardContent>

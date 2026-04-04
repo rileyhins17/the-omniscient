@@ -20,6 +20,107 @@ export type EnrichmentResult = {
   enrichmentSummary: string;
 };
 
+const ENRICHMENT_BANNED_PHRASES = [
+  "stellar reputation",
+  "glowing reviews",
+  "award-winning",
+  "award winning",
+  "high-converting",
+  "high converting",
+  "modernize",
+  "boost revenue",
+  "grow your brand",
+  "online presence",
+  "digital transformation",
+  "best-in-class",
+  "best in class",
+  "stand out online",
+  "unlock growth",
+];
+
+function clampText(value: string | null | undefined, maxLength: number, fallback: string) {
+  const cleaned = (value || "")
+    .replace(/[—–]/g, ",")
+    .replace(/!/g, ".")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) return fallback;
+  return cleaned.slice(0, maxLength).trim();
+}
+
+function sanitizeEnrichmentText(value: string | null | undefined, fallback: string, maxLength: number) {
+  let cleaned = clampText(value, maxLength, fallback);
+  for (const phrase of ENRICHMENT_BANNED_PHRASES) {
+    const pattern = new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig");
+    cleaned = cleaned.replace(pattern, "");
+  }
+  cleaned = cleaned.replace(/\s{2,}/g, " ").replace(/\s+\./g, ".").trim();
+  return cleaned || fallback;
+}
+
+function sanitizeAnticipatedObjections(value: string[] | null | undefined) {
+  const objections = Array.isArray(value) ? value : [];
+  const sanitized = objections
+    .map((item) => sanitizeEnrichmentText(item, "", 120))
+    .filter(Boolean)
+    .slice(0, 3);
+
+  if (sanitized.length > 0) {
+    return sanitized;
+  }
+
+  return [
+    "Most work still comes from referrals.",
+    "The current site may feel good enough for now.",
+  ];
+}
+
+function normalizeEnrichmentResult(result: EnrichmentResult): EnrichmentResult {
+  return {
+    valueProposition: sanitizeEnrichmentText(
+      result.valueProposition,
+      "Axiom can likely help make the website clearer, more trustworthy, and easier to act on.",
+      220,
+    ),
+    pitchAngle: sanitizeEnrichmentText(
+      result.pitchAngle,
+      "The site may be creating more friction than it should for someone deciding whether to reach out.",
+      160,
+    ),
+    anticipatedObjections: sanitizeAnticipatedObjections(result.anticipatedObjections),
+    emailTone:
+      result.emailTone === "casual" || result.emailTone === "urgent" || result.emailTone === "professional"
+        ? result.emailTone
+        : "professional",
+    keyPainPoint: sanitizeEnrichmentText(
+      result.keyPainPoint,
+      "The website may not be making the next step clear enough.",
+      160,
+    ),
+    competitiveEdge: sanitizeEnrichmentText(
+      result.competitiveEdge,
+      "Competitors may be making trust, clarity, or contact easier to understand online.",
+      180,
+    ),
+    personalizedHook: sanitizeEnrichmentText(
+      result.personalizedHook,
+      "I had one quick thought while looking through the business online.",
+      180,
+    ),
+    recommendedCTA: sanitizeEnrichmentText(
+      result.recommendedCTA,
+      "Would it be helpful if I sent over 2 or 3 ideas?",
+      120,
+    ),
+    enrichmentSummary: sanitizeEnrichmentText(
+      result.enrichmentSummary,
+      "This looks like a lead where the site may not fully support the trust and clarity the business already needs.",
+      220,
+    ),
+  };
+}
+
 function buildLeadContext(lead: LeadRecord): string {
   const lines: string[] = [];
 
@@ -86,40 +187,65 @@ function buildLeadContext(lead: LeadRecord): string {
   return lines.join("\n");
 }
 
-const SYSTEM_PROMPT = `You are a B2B outreach strategist for Axiom Infrastructure, a web design and development agency based in Ontario, Canada. Your job is to analyze a business lead and produce actionable intelligence for a personalized cold email outreach campaign.
+const SYSTEM_PROMPT = `You are writing outreach intelligence for Axiom Infrastructure, an engineering-first web infrastructure firm for local businesses.
 
-Axiom Infrastructure specializes in:
-- Modern, high-converting websites for local service businesses
-- Speed optimization and mobile-first design
-- SEO and local search visibility
-- Online booking/quote systems
-- Brand identity and trust-building
+Your job is not to write polished agency strategy language. Your job is to produce grounded notes that help a human write a short, believable cold email.
 
-Your analysis must be specific to the business — never generic. Reference their actual pain points, industry, and competitive landscape.
+Rules:
+1. Be specific to the actual business and scraped evidence.
+2. Prefer concrete observations over broad claims.
+3. If evidence is weak, soften it with wording like "may be", "might be", or "feels like".
+4. Do not exaggerate.
+5. Do not flatter the business with generic compliments.
+6. Do not use agency filler.
+7. Do not recommend a high-friction CTA by default.
+8. Keep each field concise and usable in a human-sounding email.
+9. Do not use em dashes or exclamation marks.
+
+Never use phrases like:
+- stellar reputation
+- glowing reviews
+- award-winning brand
+- high-converting
+- modernize your website
+- boost revenue
+- online presence
+- digital transformation
+- stand out online
+
+Good observation areas:
+- site feels dated on mobile
+- booking or contact path takes too many clicks
+- trust signals are buried
+- service pages are thin or unclear
+- site feels slow
+- the business looks stronger elsewhere than on the site
+- no clear website surfaced
 
 Respond with a JSON object containing these fields:
-- valueProposition: A 1-2 sentence explanation of why Axiom specifically helps THIS business (reference their problems)
-- pitchAngle: The single most compelling angle for the email (e.g., "competitors are stealing your customers online")
-- anticipatedObjections: Array of 2-3 likely pushbacks (e.g., "I get business from word of mouth", "I tried a website before")
-- emailTone: One of "casual", "professional", or "urgent" — based on the business type and pain severity
-- keyPainPoint: The #1 pain point to lead the email with
-- competitiveEdge: What competitors are likely doing better online
-- personalizedHook: An opening line that shows research was done on this specific business
-- recommendedCTA: What action to ask for (e.g., "quick 10-minute call", "reply to this email")
-- enrichmentSummary: A 2-3 sentence executive summary of why this lead is worth pursuing`;
+- valueProposition: 1 short sentence on how Axiom could help this business specifically, grounded in the observed issue
+- pitchAngle: the clearest angle for the outreach email in 1 short sentence
+- anticipatedObjections: Array of 2-3 realistic pushbacks
+- emailTone: One of "casual", "professional", or "urgent"
+- keyPainPoint: The single clearest issue to lead with
+- competitiveEdge: What a stronger competitor or stronger local site is probably doing better in practical terms
+- personalizedHook: One short opener tied to a concrete observation
+- recommendedCTA: Low-friction CTA only, usually offering to send a few ideas
+- enrichmentSummary: 1-2 short sentences summarizing why the lead is worth outreach`;
 
 /**
  * Enrich a single lead using DeepSeek.
  */
 export async function enrichLead(lead: LeadRecord): Promise<EnrichmentResult> {
   const context = buildLeadContext(lead);
-
-  return chatCompletionJson<EnrichmentResult>({
+  const firstPass = await chatCompletionJson<EnrichmentResult>({
     systemPrompt: SYSTEM_PROMPT,
     userPrompt: `Analyze this lead and produce outreach intelligence:\n\n${context}`,
-    temperature: 0.5,
+    temperature: 0.35,
     maxTokens: 1024,
   });
+
+  return normalizeEnrichmentResult(firstPass);
 }
 
 /**

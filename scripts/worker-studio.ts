@@ -112,7 +112,7 @@ function resolveConfig() {
   const agentSharedSecret = String(env.AGENT_SHARED_SECRET || "").trim();
   const claimPollIntervalMs = Math.max(1000, Number(env.CLAIM_POLL_INTERVAL_MS || 5000));
   const heartbeatIntervalMs = Math.max(5000, Number(env.HEARTBEAT_INTERVAL_MS || 15000));
-  const scrapeTimeoutMs = Math.max(600000, Number(env.SCRAPE_TIMEOUT_MS || 600000));
+  const scrapeTimeoutMs = Math.max(1800000, Number(env.SCRAPE_TIMEOUT_MS || 1800000));
 
   return {
     controlPlaneUrl,

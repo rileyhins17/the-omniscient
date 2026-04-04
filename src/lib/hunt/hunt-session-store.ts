@@ -15,7 +15,7 @@ export interface HuntCounters {
     errors: number;
 }
 
-export type SessionStatus = "idle" | "running" | "paused" | "canceled" | "completed";
+export type SessionStatus = "idle" | "running" | "paused" | "canceled" | "completed" | "interrupted";
 
 export interface CurrentJob {
     niche: string;

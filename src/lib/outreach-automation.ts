@@ -3,6 +3,7 @@ import {
   type OutreachSequenceStepType,
 } from "@/lib/outreach-email-generator";
 import { getValidAccessToken, getGmailThreadMetadata, sendGmailEmail } from "@/lib/gmail";
+import { hasValidPipelineEmail, isLeadOutreachEligible } from "@/lib/lead-qualification";
 import { getPrisma } from "@/lib/prisma";
 import type {
   GmailConnectionRecord,
@@ -82,22 +83,109 @@ export type OutreachSequenceSummary = OutreachSequenceRecord & {
 
 export type AutomationOverview = {
   settings: OutreachAutomationSettingRecord;
+  ready: LeadRecord[];
   mailboxes: Array<OutreachMailboxRecord & { sentToday: number; sentThisHour: number }>;
-  queued: Array<OutreachSequenceSummary>;
-  active: Array<OutreachSequenceSummary>;
-  finished: Array<OutreachSequenceSummary>;
+  sequences: Array<
+    OutreachSequenceSummary & {
+      state: AutomationCanonicalState;
+      blockerReason: string | null;
+      blockerLabel: string | null;
+      blockerDetail: string | null;
+      nextSendAt: Date | null;
+      hasSentAnyStep: boolean;
+      secondaryBlockers: string[];
+    }
+  >;
+  queued: Array<
+    OutreachSequenceSummary & {
+      state: AutomationCanonicalState;
+      blockerReason: string | null;
+      blockerLabel: string | null;
+      blockerDetail: string | null;
+      nextSendAt: Date | null;
+      hasSentAnyStep: boolean;
+      secondaryBlockers: string[];
+    }
+  >;
+  active: Array<
+    OutreachSequenceSummary & {
+      state: AutomationCanonicalState;
+      blockerReason: string | null;
+      blockerLabel: string | null;
+      blockerDetail: string | null;
+      nextSendAt: Date | null;
+      hasSentAnyStep: boolean;
+      secondaryBlockers: string[];
+    }
+  >;
+  finished: Array<
+    OutreachSequenceSummary & {
+      state: AutomationCanonicalState;
+      blockerReason: string | null;
+      blockerLabel: string | null;
+      blockerDetail: string | null;
+      nextSendAt: Date | null;
+      hasSentAnyStep: boolean;
+      secondaryBlockers: string[];
+    }
+  >;
+  recentSent: Array<{
+    id: string;
+    sentAt: Date;
+    subject: string;
+    senderEmail: string;
+    recipientEmail: string;
+    sequenceId: string | null;
+    lead?: LeadRecord | null;
+  }>;
+  engine: {
+    mode: "ACTIVE" | "PAUSED" | "DISABLED";
+    nextSendAt: Date | null;
+    scheduledToday: number;
+    blockedCount: number;
+    replyStoppedCount: number;
+    readyCount: number;
+    queuedCount: number;
+    waitingCount: number;
+    sendingCount: number;
+  };
   recentRuns: OutreachRunRecord[];
   stats: {
+    ready: number;
     queued: number;
+    sending: number;
+    waiting: number;
+    blocked: number;
     active: number;
     paused: number;
     stopped: number;
     completed: number;
     replied: number;
+    scheduledToday: number;
   };
 };
 
-const ACTIVE_SEQUENCE_STATUSES = ["QUEUED", "ACTIVE", "PAUSED"] as const;
+type AutomationCanonicalState = "QUEUED" | "SENDING" | "WAITING" | "BLOCKED" | "STOPPED" | "COMPLETED";
+
+type AutomationBlockerReason =
+  | "reply_detected"
+  | "suppressed"
+  | "manual_pause"
+  | "global_pause"
+  | "mailbox_disconnected"
+  | "mailbox_disabled"
+  | "missing_valid_email"
+  | "missing_enrichment"
+  | "policy_ineligible"
+  | "outside_send_window"
+  | "mailbox_cooldown"
+  | "hourly_cap_reached"
+  | "daily_cap_reached"
+  | "awaiting_follow_up_window"
+  | "generation_failed_retryable"
+  | "send_failed_retryable";
+
+const ACTIVE_SEQUENCE_STATUSES = ["QUEUED", "ACTIVE", "PAUSED", "SENDING"] as const;
 const MAILBOX_SENDABLE_STATUSES = ["ACTIVE", "WARMING"] as const;
 
 function normalizeEmail(email: string | null | undefined) {
@@ -170,6 +258,143 @@ function coerceDate(value: Date | string | null | undefined) {
   if (!value) return null;
   const parsed = value instanceof Date ? value : new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function normalizeBlockerReason(value: string | null | undefined): AutomationBlockerReason | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase().replaceAll(" ", "_");
+  const known: AutomationBlockerReason[] = [
+    "reply_detected",
+    "suppressed",
+    "manual_pause",
+    "global_pause",
+    "mailbox_disconnected",
+    "mailbox_disabled",
+    "missing_valid_email",
+    "missing_enrichment",
+    "policy_ineligible",
+    "outside_send_window",
+    "mailbox_cooldown",
+    "hourly_cap_reached",
+    "daily_cap_reached",
+    "awaiting_follow_up_window",
+    "generation_failed_retryable",
+    "send_failed_retryable",
+  ];
+  return known.includes(normalized as AutomationBlockerReason)
+    ? (normalized as AutomationBlockerReason)
+    : null;
+}
+
+function getBlockerMeta(reason: AutomationBlockerReason) {
+  switch (reason) {
+    case "reply_detected":
+      return {
+        label: "Reply detected",
+        detail: "A reply was found in the thread, so future sends are stopped.",
+      };
+    case "suppressed":
+      return {
+        label: "Suppressed",
+        detail: "This contact is suppressed from future automated sends.",
+      };
+    case "manual_pause":
+      return {
+        label: "Paused manually",
+        detail: "This sequence is paused until you resume it.",
+      };
+    case "global_pause":
+      return {
+        label: "Global pause is on",
+        detail: "Automation is paused for every sequence right now.",
+      };
+    case "mailbox_disconnected":
+      return {
+        label: "Mailbox disconnected",
+        detail: "The assigned mailbox needs attention before this sequence can continue.",
+      };
+    case "mailbox_disabled":
+      return {
+        label: "Mailbox unavailable",
+        detail: "The assigned mailbox is paused or disabled.",
+      };
+    case "missing_valid_email":
+      return {
+        label: "No valid email",
+        detail: "This lead does not have a vetted pipeline-usable email.",
+      };
+    case "missing_enrichment":
+      return {
+        label: "Missing enrichment",
+        detail: "This lead needs enrichment before automation can send.",
+      };
+    case "policy_ineligible":
+      return {
+        label: "Not automation-ready",
+        detail: "This lead no longer meets the automation qualification rules.",
+      };
+    case "outside_send_window":
+      return {
+        label: "Outside send window",
+        detail: "The mailbox is waiting for the next business-hour send window.",
+      };
+    case "mailbox_cooldown":
+      return {
+        label: "Mailbox cooldown",
+        detail: "The mailbox minimum delay has not elapsed yet.",
+      };
+    case "hourly_cap_reached":
+      return {
+        label: "Hourly cap reached",
+        detail: "The mailbox has no hourly capacity left right now.",
+      };
+    case "daily_cap_reached":
+      return {
+        label: "Daily cap reached",
+        detail: "The mailbox has no daily capacity left today.",
+      };
+    case "awaiting_follow_up_window":
+      return {
+        label: "Waiting for follow-up",
+        detail: "The next follow-up is scheduled for a later business-day window.",
+      };
+    case "generation_failed_retryable":
+      return {
+        label: "Email generation needs retry",
+        detail: "The last email draft failed validation and is waiting for retry or manual review.",
+      };
+    case "send_failed_retryable":
+      return {
+        label: "Send failed, retry queued",
+        detail: "A transient send failure occurred and the step was rescheduled.",
+      };
+  }
+}
+
+const BLOCKER_PRECEDENCE: AutomationBlockerReason[] = [
+  "reply_detected",
+  "suppressed",
+  "manual_pause",
+  "global_pause",
+  "mailbox_disconnected",
+  "mailbox_disabled",
+  "missing_valid_email",
+  "missing_enrichment",
+  "policy_ineligible",
+  "outside_send_window",
+  "mailbox_cooldown",
+  "hourly_cap_reached",
+  "daily_cap_reached",
+  "awaiting_follow_up_window",
+  "generation_failed_retryable",
+  "send_failed_retryable",
+];
+
+function getPrimaryBlocker(blockers: AutomationBlockerReason[]) {
+  if (blockers.length === 0) return null;
+  const deduped = Array.from(new Set(blockers));
+  deduped.sort((a, b) => BLOCKER_PRECEDENCE.indexOf(a) - BLOCKER_PRECEDENCE.indexOf(b));
+  return deduped[0] || null;
 }
 
 function isWithinSendWindow(date: Date, config: OutreachSequenceConfig) {
@@ -414,12 +639,7 @@ async function allocateMailbox(
     })),
   );
 
-  const eligible = loads.filter(
-    (entry) => entry.sentToday < entry.mailbox.dailyLimit && entry.sentThisHour < entry.mailbox.hourlyLimit,
-  );
-  if (eligible.length === 0) return null;
-
-  eligible.sort((a, b) => {
+  loads.sort((a, b) => {
     const pendingA = pendingAssignments.get(a.mailbox.id) || 0;
     const pendingB = pendingAssignments.get(b.mailbox.id) || 0;
     if (pendingA !== pendingB) return pendingA - pendingB;
@@ -429,7 +649,7 @@ async function allocateMailbox(
   });
 
   return {
-    mailbox: eligible[0].mailbox,
+    mailbox: loads[0].mailbox,
     reason: "least-loaded",
   };
 }
@@ -456,6 +676,206 @@ export async function getActiveAutomationLeadIds() {
     select: { leadId: true },
   });
   return Array.from(new Set(sequences.map((sequence) => sequence.leadId)));
+}
+
+async function listAutomationReadyLeads(prisma: PrismaLike) {
+  const activeLeadIds = new Set(await getActiveAutomationLeadIds());
+  const leads = (await prisma.lead.findMany({
+    where: {
+      enrichedAt: { not: null },
+      isArchived: false,
+    },
+    orderBy: { enrichedAt: "desc" },
+  })) as LeadRecord[];
+
+  return leads
+    .filter((lead) => {
+      if (activeLeadIds.has(lead.id)) return false;
+      if (lead.outreachStatus && lead.outreachStatus !== "NOT_CONTACTED") return false;
+      if (!isLeadOutreachEligible(lead)) return false;
+      if (!lead.enrichmentData) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const scoreDiff = (b.axiomScore || 0) - (a.axiomScore || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      return (coerceDate(b.enrichedAt)?.getTime() || 0) - (coerceDate(a.enrichedAt)?.getTime() || 0);
+    });
+}
+
+function getMailboxNextAvailableAt(
+  mailbox: OutreachMailboxRecord,
+  settings: OutreachAutomationSettingRecord,
+  now: Date,
+) {
+  if (!MAILBOX_SENDABLE_STATUSES.includes(mailbox.status as (typeof MAILBOX_SENDABLE_STATUSES)[number])) {
+    return null;
+  }
+
+  let next = new Date(now);
+  const lastSentAt = coerceDate(mailbox.lastSentAt);
+  if (lastSentAt) {
+    const cooldownReadyAt = addSeconds(lastSentAt, mailbox.minDelaySeconds);
+    if (cooldownReadyAt.getTime() > next.getTime()) {
+      next = cooldownReadyAt;
+    }
+  }
+
+  return adjustToAllowedSendWindow(next, {
+    timezone: mailbox.timezone,
+    weekdaysOnly: settings.weekdaysOnly,
+    sendWindowStartHour: settings.sendWindowStartHour,
+    sendWindowStartMinute: settings.sendWindowStartMinute,
+    sendWindowEndHour: settings.sendWindowEndHour,
+    sendWindowEndMinute: settings.sendWindowEndMinute,
+    initialDelayMinMinutes: settings.initialDelayMinMinutes,
+    initialDelayMaxMinutes: settings.initialDelayMaxMinutes,
+    followUp1BusinessDays: settings.followUp1BusinessDays,
+    followUp2BusinessDays: settings.followUp2BusinessDays,
+    schedulerClaimBatch: settings.schedulerClaimBatch,
+    replySyncStaleMinutes: settings.replySyncStaleMinutes,
+    leadSnapshot: {
+      id: 0,
+      businessName: "",
+      city: "",
+      niche: "",
+      email: "",
+      contactName: null,
+      websiteStatus: null,
+      axiomScore: null,
+      axiomTier: null,
+    },
+    enrichmentSnapshot: null,
+  });
+}
+
+async function getSequenceRuntimeBlockers(
+  prisma: PrismaLike,
+  sequence: OutreachSequenceSummary,
+  settings: OutreachAutomationSettingRecord,
+  now: Date,
+) {
+  const blockers: AutomationBlockerReason[] = [];
+  const normalizedStatus = sequence.status.toUpperCase();
+
+  if (normalizedStatus === "STOPPED" || normalizedStatus === "COMPLETED" || normalizedStatus === "FAILED") {
+    const terminalReason = normalizeBlockerReason(sequence.stopReason);
+    return terminalReason ? [terminalReason] : [];
+  }
+
+  if (normalizeBlockerReason(sequence.stopReason) === "reply_detected" || sequence.stopReason === "REPLIED") {
+    blockers.push("reply_detected");
+  }
+
+  if (sequence.status === "PAUSED") {
+    blockers.push("manual_pause");
+  }
+
+  if (settings.globalPaused) {
+    blockers.push("global_pause");
+  }
+
+  const lead = sequence.lead;
+  const mailbox = sequence.mailbox;
+
+  if (!lead?.enrichmentData) {
+    blockers.push("missing_enrichment");
+  }
+
+  if (!lead || !hasValidPipelineEmail(lead)) {
+    blockers.push("missing_valid_email");
+  }
+
+  if (!lead || !isLeadOutreachEligible(lead)) {
+    blockers.push("policy_ineligible");
+  }
+
+  if (lead?.email) {
+    const suppression = await prisma.outreachSuppression.findFirst({
+      where: {
+        OR: [{ email: normalizeEmail(lead.email) }, { domain: getDomainFromEmail(lead.email) }],
+      },
+    });
+    if (suppression) {
+      blockers.push("suppressed");
+    }
+  }
+
+  if (!mailbox?.gmailConnectionId) {
+    blockers.push("mailbox_disconnected");
+  } else if (!MAILBOX_SENDABLE_STATUSES.includes(mailbox.status as (typeof MAILBOX_SENDABLE_STATUSES)[number])) {
+    blockers.push("mailbox_disabled");
+  } else {
+    const { sentToday, sentThisHour } = await getMailboxLoad(prisma, mailbox.id, now);
+    if (sentToday >= mailbox.dailyLimit) blockers.push("daily_cap_reached");
+    if (sentThisHour >= mailbox.hourlyLimit) blockers.push("hourly_cap_reached");
+
+    const lastSentAt = coerceDate(mailbox.lastSentAt);
+    if (lastSentAt && now.getTime() - lastSentAt.getTime() < mailbox.minDelaySeconds * 1000) {
+      blockers.push("mailbox_cooldown");
+    }
+
+    const config = sequence.sequenceConfigSnapshot
+      ? (JSON.parse(sequence.sequenceConfigSnapshot) as OutreachSequenceConfig)
+      : null;
+    if (config && !isWithinSendWindow(now, config)) {
+      blockers.push("outside_send_window");
+    }
+  }
+
+  const nextSendAt = coerceDate(sequence.nextScheduledAt || sequence.nextStep?.scheduledFor || null);
+  const hasSentAnyStep = Boolean(sequence.lastSentAt);
+  if (hasSentAnyStep && nextSendAt && nextSendAt.getTime() > now.getTime()) {
+    blockers.push("awaiting_follow_up_window");
+  }
+
+  const terminalRetry = normalizeBlockerReason((sequence as OutreachSequenceSummary & { blockerReason?: string | null }).blockerReason);
+  if (terminalRetry === "generation_failed_retryable" || terminalRetry === "send_failed_retryable") {
+    blockers.push(terminalRetry);
+  }
+
+  return Array.from(new Set(blockers));
+}
+
+async function enrichSequenceSummary(
+  prisma: PrismaLike,
+  sequence: OutreachSequenceSummary,
+  settings: OutreachAutomationSettingRecord,
+  now: Date,
+) {
+  const blockers = await getSequenceRuntimeBlockers(prisma, sequence, settings, now);
+  const primaryBlocker = getPrimaryBlocker(blockers);
+  const nextSendAt = coerceDate(sequence.nextScheduledAt || sequence.nextStep?.scheduledFor || null);
+  const hasSentAnyStep = Boolean(sequence.lastSentAt);
+  const normalizedStatus = sequence.status.toUpperCase();
+
+  let state: AutomationCanonicalState;
+  if (normalizedStatus === "STOPPED" || normalizedStatus === "FAILED") {
+    state = "STOPPED";
+  } else if (normalizedStatus === "COMPLETED") {
+    state = "COMPLETED";
+  } else if (normalizedStatus === "SENDING") {
+    state = "SENDING";
+  } else if (primaryBlocker) {
+    state = "BLOCKED";
+  } else if (hasSentAnyStep) {
+    state = "WAITING";
+  } else {
+    state = "QUEUED";
+  }
+
+  const blockerMeta = primaryBlocker ? getBlockerMeta(primaryBlocker) : null;
+
+  return {
+    ...sequence,
+    state,
+    blockerReason: primaryBlocker,
+    blockerLabel: blockerMeta?.label || null,
+    blockerDetail: blockerMeta?.detail || null,
+    nextSendAt,
+    hasSentAnyStep,
+    secondaryBlockers: blockers.filter((reason) => reason !== primaryBlocker),
+  };
 }
 
 export async function queueLeadsForAutomation(input: {
@@ -492,8 +912,18 @@ export async function queueLeadsForAutomation(input: {
       continue;
     }
 
-    if (!lead.email || !lead.enrichmentData) {
-      result.skipped.push({ leadId, reason: "Lead must have a valid email and enrichment data" });
+    if (!lead.enrichmentData) {
+      result.skipped.push({ leadId, reason: "Lead must be enriched before automation can queue it" });
+      continue;
+    }
+
+    if (!hasValidPipelineEmail(lead)) {
+      result.skipped.push({ leadId, reason: "Lead needs a vetted pipeline-usable email" });
+      continue;
+    }
+
+    if (!isLeadOutreachEligible(lead)) {
+      result.skipped.push({ leadId, reason: "Lead is not automation-ready yet" });
       continue;
     }
 
@@ -595,16 +1025,22 @@ export async function listAutomationOverview() {
   const prisma = getPrisma();
   const now = new Date();
   const settings = await getSettings(prisma);
-  const [mailboxes, sequences, recentRuns] = await Promise.all([
+  const [mailboxes, sequences, recentRuns, ready, recentSentRaw] = await Promise.all([
     prisma.outreachMailbox.findMany({ orderBy: { updatedAt: "desc" } }) as Promise<OutreachMailboxRecord[]>,
     prisma.outreachSequence.findMany({ orderBy: { createdAt: "desc" }, take: 300 }) as Promise<OutreachSequenceRecord[]>,
     prisma.outreachRun.findMany({ orderBy: { startedAt: "desc" }, take: 20 }) as Promise<OutreachRunRecord[]>,
+    listAutomationReadyLeads(prisma),
+    prisma.outreachEmail.findMany({
+      where: { status: "sent", sequenceId: { not: null } },
+      orderBy: { sentAt: "desc" },
+      take: 12,
+    }),
   ]);
 
   const leadMap = await getLeadMap(prisma, Array.from(new Set(sequences.map((sequence) => sequence.leadId))));
   const mailboxMap = await getMailboxMap(prisma, Array.from(new Set(sequences.map((sequence) => sequence.assignedMailboxId).filter(Boolean) as string[])));
 
-  const summaries = await Promise.all(
+  const rawSummaries = await Promise.all(
     sequences.map(async (sequence) => ({
       ...sequence,
       lead: leadMap.get(sequence.leadId) ?? null,
@@ -617,23 +1053,84 @@ export async function listAutomationOverview() {
     mailboxes.map(async (mailbox) => ({
       ...mailbox,
       ...(await getMailboxLoad(prisma, mailbox.id, now)),
+      nextAvailableAt: getMailboxNextAvailableAt(mailbox, settings, now),
     })),
   );
 
+  const summaries = await Promise.all(
+    rawSummaries.map((sequence) => enrichSequenceSummary(prisma, sequence, settings, now)),
+  );
+
+  const recentSentLeadMap = await getLeadMap(
+    prisma,
+    Array.from(new Set(recentSentRaw.map((email) => email.leadId).filter((value): value is number => typeof value === "number"))),
+  );
+
+  const recentSent = recentSentRaw.map((email) => ({
+    id: email.id,
+    sentAt: email.sentAt || new Date(),
+    subject: email.subject,
+    senderEmail: email.senderEmail,
+    recipientEmail: email.recipientEmail,
+    sequenceId: email.sequenceId,
+    lead: email.leadId ? recentSentLeadMap.get(email.leadId) ?? null : null,
+  }));
+
+  const queued = summaries.filter((sequence) => sequence.state === "QUEUED");
+  const active = summaries.filter((sequence) =>
+    sequence.state === "SENDING" || sequence.state === "WAITING" || sequence.state === "BLOCKED",
+  );
+  const finished = summaries.filter((sequence) => sequence.state === "STOPPED" || sequence.state === "COMPLETED");
+  const nextSendAt =
+    summaries
+      .map((sequence) => sequence.nextSendAt)
+      .filter((value): value is Date => value instanceof Date)
+      .sort((a, b) => a.getTime() - b.getTime())[0] || null;
+  const todayEnd = startOfDay(addMinutes(now, 24 * 60));
+  const scheduledToday = summaries.filter(
+    (sequence) =>
+      sequence.nextSendAt &&
+      sequence.nextSendAt.getTime() >= startOfDay(now).getTime() &&
+      sequence.nextSendAt.getTime() < todayEnd.getTime(),
+  ).length;
+  const blockedCount = summaries.filter((sequence) => sequence.state === "BLOCKED").length;
+  const sendingCount = summaries.filter((sequence) => sequence.state === "SENDING").length;
+  const waitingCount = summaries.filter((sequence) => sequence.state === "WAITING").length;
+  const repliedCount = summaries.filter((sequence) => sequence.blockerReason === "reply_detected").length;
+
   return {
     settings,
+    ready,
     mailboxes: mailboxStats,
-    queued: summaries.filter((sequence) => sequence.status === "QUEUED"),
-    active: summaries.filter((sequence) => sequence.status === "ACTIVE" || sequence.status === "PAUSED"),
-    finished: summaries.filter((sequence) => sequence.status === "STOPPED" || sequence.status === "COMPLETED" || sequence.status === "FAILED"),
+    sequences: summaries,
+    queued,
+    active,
+    finished,
+    recentSent,
+    engine: {
+      mode: !settings.enabled ? "DISABLED" : settings.globalPaused ? "PAUSED" : "ACTIVE",
+      nextSendAt,
+      scheduledToday,
+      blockedCount,
+      replyStoppedCount: repliedCount,
+      readyCount: ready.length,
+      queuedCount: queued.length,
+      waitingCount,
+      sendingCount,
+    },
     recentRuns,
     stats: {
-      queued: summaries.filter((sequence) => sequence.status === "QUEUED").length,
-      active: summaries.filter((sequence) => sequence.status === "ACTIVE").length,
+      ready: ready.length,
+      queued: queued.length,
+      sending: sendingCount,
+      waiting: waitingCount,
+      blocked: blockedCount,
+      active: sendingCount + waitingCount + blockedCount,
       paused: summaries.filter((sequence) => sequence.status === "PAUSED").length,
-      stopped: summaries.filter((sequence) => sequence.status === "STOPPED").length,
-      completed: summaries.filter((sequence) => sequence.status === "COMPLETED").length,
-      replied: summaries.filter((sequence) => sequence.stopReason === "REPLIED").length,
+      stopped: summaries.filter((sequence) => sequence.state === "STOPPED").length,
+      completed: summaries.filter((sequence) => sequence.state === "COMPLETED").length,
+      replied: repliedCount,
+      scheduledToday,
     },
   } satisfies AutomationOverview;
 }
@@ -709,7 +1206,7 @@ export async function mutateSequence(
   if (action === "pause") {
     return prisma.outreachSequence.update({
       where: { id: sequence.id },
-      data: { status: "PAUSED" },
+      data: { status: "PAUSED", stopReason: "manual_pause" },
     });
   }
 
@@ -720,6 +1217,7 @@ export async function mutateSequence(
       data: {
         status: nextStep ? "ACTIVE" : "QUEUED",
         nextScheduledAt: nextStep?.scheduledFor ?? null,
+        stopReason: null,
       },
     });
   }
@@ -730,26 +1228,26 @@ export async function mutateSequence(
 
 async function canMailboxSend(prisma: PrismaLike, mailbox: OutreachMailboxRecord, now: Date, config: OutreachSequenceConfig) {
   if (!MAILBOX_SENDABLE_STATUSES.includes(mailbox.status as (typeof MAILBOX_SENDABLE_STATUSES)[number])) {
-    return { allowed: false, reason: "Mailbox is not active" };
+    return { allowed: false, reason: "mailbox_disabled" as AutomationBlockerReason };
   }
 
   if (!isWithinSendWindow(now, config)) {
-    return { allowed: false, reason: "Outside mailbox send window" };
+    return { allowed: false, reason: "outside_send_window" as AutomationBlockerReason };
   }
 
   const { sentToday, sentThisHour } = await getMailboxLoad(prisma, mailbox.id, now);
   if (sentToday >= mailbox.dailyLimit) {
-    return { allowed: false, reason: "Mailbox hit daily limit" };
+    return { allowed: false, reason: "daily_cap_reached" as AutomationBlockerReason };
   }
   if (sentThisHour >= mailbox.hourlyLimit) {
-    return { allowed: false, reason: "Mailbox hit hourly limit" };
+    return { allowed: false, reason: "hourly_cap_reached" as AutomationBlockerReason };
   }
 
   const lastSentAt = coerceDate(mailbox.lastSentAt);
   if (lastSentAt) {
     const minGapMs = mailbox.minDelaySeconds * 1000;
     if (now.getTime() - lastSentAt.getTime() < minGapMs) {
-      return { allowed: false, reason: "Mailbox minimum delay has not elapsed" };
+      return { allowed: false, reason: "mailbox_cooldown" as AutomationBlockerReason };
     }
   }
 
@@ -863,7 +1361,7 @@ export async function syncAutomationReplies() {
   const staleBefore = addMinutes(new Date(), -settings.replySyncStaleMinutes);
   const sequences = await prisma.outreachSequence.findMany({
     where: {
-      status: { in: ["QUEUED", "ACTIVE"] },
+      status: { in: ["QUEUED", "ACTIVE", "SENDING"] },
       lastSentAt: { not: null },
     },
     orderBy: { lastSentAt: "asc" },
@@ -930,6 +1428,63 @@ function getSenderName(mailbox: OutreachMailboxRecord) {
   return mailbox.label?.trim() || mailbox.gmailAddress.split("@")[0];
 }
 
+class AutomationSkipError extends Error {
+  reason: AutomationBlockerReason;
+  constructor(reason: AutomationBlockerReason) {
+    super(reason);
+    this.reason = reason;
+  }
+}
+
+class AutomationRetryableSendError extends Error {
+  reason: AutomationBlockerReason;
+  constructor(reason: AutomationBlockerReason) {
+    super(reason);
+    this.reason = reason;
+  }
+}
+
+class AutomationStoppedError extends Error {
+  reason: AutomationBlockerReason;
+  constructor(reason: AutomationBlockerReason) {
+    super(reason);
+    this.reason = reason;
+  }
+}
+
+function classifySendFailure(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+
+  if (
+    message.includes("unauthorized") ||
+    message.includes("invalid_grant") ||
+    message.includes("refresh token") ||
+    message.includes("gmail connection is missing")
+  ) {
+    return { kind: "blocked" as const, reason: "mailbox_disconnected" as AutomationBlockerReason };
+  }
+
+  if (
+    message.includes("timeout") ||
+    message.includes("rate limit") ||
+    message.includes("too many requests") ||
+    message.includes("temporar") ||
+    message.includes("network")
+  ) {
+    return { kind: "retryable" as const, reason: "send_failed_retryable" as AutomationBlockerReason };
+  }
+
+  if (message.includes("suppressed")) {
+    return { kind: "stopped" as const, reason: "suppressed" as AutomationBlockerReason };
+  }
+
+  if (message.includes("recipient") || message.includes("invalid to")) {
+    return { kind: "stopped" as const, reason: "policy_ineligible" as AutomationBlockerReason };
+  }
+
+  return { kind: "retryable" as const, reason: "send_failed_retryable" as AutomationBlockerReason };
+}
+
 async function sendScheduledStep(
   prisma: PrismaLike,
   claim: SchedulerClaim,
@@ -945,11 +1500,56 @@ async function sendScheduledStep(
     ? (await prisma.gmailConnection.findUnique({ where: { id: claim.mailbox.gmailConnectionId } }) as GmailConnectionRecord | null)
     : null;
   if (!connection) {
-    throw new Error("Mailbox Gmail connection is missing");
+    await prisma.outreachSequenceStep.update({
+      where: { id: claim.step.id },
+      data: {
+        status: "SCHEDULED",
+        claimedAt: null,
+        claimedByRunId: null,
+      },
+    });
+    throw new AutomationSkipError("mailbox_disconnected");
   }
 
-  if (!context.lead.email || !context.lead.enrichmentData) {
-    throw new Error("Lead no longer has a valid email or enrichment payload");
+  if (!context.lead.enrichmentData) {
+    await prisma.outreachSequenceStep.update({
+      where: { id: claim.step.id },
+      data: {
+        status: "SCHEDULED",
+        claimedAt: null,
+        claimedByRunId: null,
+      },
+    });
+    throw new AutomationSkipError("missing_enrichment");
+  }
+
+  if (!hasValidPipelineEmail(context.lead)) {
+    await prisma.outreachSequenceStep.update({
+      where: { id: claim.step.id },
+      data: {
+        status: "SCHEDULED",
+        claimedAt: null,
+        claimedByRunId: null,
+      },
+    });
+    throw new AutomationSkipError("missing_valid_email");
+  }
+
+  if (!isLeadOutreachEligible(context.lead)) {
+    await prisma.outreachSequenceStep.update({
+      where: { id: claim.step.id },
+      data: {
+        status: "SCHEDULED",
+        claimedAt: null,
+        claimedByRunId: null,
+      },
+    });
+    throw new AutomationSkipError("policy_ineligible");
+  }
+
+  const recipientEmail = context.lead.email;
+  if (!recipientEmail) {
+    throw new AutomationSkipError("missing_valid_email");
   }
 
   const suppression = await prisma.outreachSuppression.findFirst({
@@ -961,23 +1561,41 @@ async function sendScheduledStep(
     },
   });
   if (suppression) {
-    await stopSequenceInternal(prisma, claim.sequence, "FAILED_POLICY");
-    throw new Error("Lead is suppressed from sending");
+    await stopSequenceInternal(prisma, claim.sequence, "SUPPRESSED");
+    throw new AutomationStoppedError("suppressed");
   }
 
   const mailboxGate = await canMailboxSend(prisma, claim.mailbox, new Date(), config);
   if (!mailboxGate.allowed) {
+    const now = new Date();
+    const baseRescheduleAt =
+      mailboxGate.reason === "daily_cap_reached"
+        ? addMinutes(now, 24 * 60)
+        : mailboxGate.reason === "hourly_cap_reached"
+          ? addMinutes(now, 60)
+          : mailboxGate.reason === "mailbox_cooldown"
+            ? addSeconds(now, claim.mailbox.minDelaySeconds)
+            : now;
     await prisma.outreachSequenceStep.update({
       where: { id: claim.step.id },
       data: {
         status: "SCHEDULED",
         claimedAt: null,
         claimedByRunId: null,
-        scheduledFor: adjustToAllowedSendWindow(addSeconds(new Date(), claim.mailbox.minDelaySeconds), config),
+        scheduledFor: adjustToAllowedSendWindow(baseRescheduleAt, config),
       },
     });
-    throw new Error(mailboxGate.reason);
+    throw new AutomationSkipError(mailboxGate.reason);
   }
+
+  await prisma.outreachSequence.update({
+    where: { id: claim.sequence.id },
+    data: {
+      status: "SENDING",
+      currentStep: claim.step.stepType,
+      nextScheduledAt: claim.step.scheduledFor,
+    },
+  });
 
   await prisma.outreachSequenceStep.update({
     where: { id: claim.step.id },
@@ -996,30 +1614,57 @@ async function sendScheduledStep(
   }
 
   const senderName = getSenderName(claim.mailbox);
-  const email = await generateSequenceStepEmail(
-    context.lead,
-    config.enrichmentSnapshot as Parameters<typeof generateSequenceStepEmail>[1],
-    senderName,
-    claim.step.stepType as OutreachSequenceStepType,
-    context.previousStep
-      ? {
-        subject: context.previousStep.subject || "",
-        bodyPlain: context.previousStep.bodyPlain || "",
-        sentAt: context.previousStep.sentAt || context.previousStep.createdAt,
-      }
-      : undefined,
-  );
+  let email: Awaited<ReturnType<typeof generateSequenceStepEmail>>;
+  try {
+    email = await generateSequenceStepEmail(
+      context.lead,
+      config.enrichmentSnapshot as Parameters<typeof generateSequenceStepEmail>[1],
+      senderName,
+      claim.step.stepType as OutreachSequenceStepType,
+      context.previousStep
+        ? {
+            subject: context.previousStep.subject || "",
+            bodyPlain: context.previousStep.bodyPlain || "",
+            sentAt: context.previousStep.sentAt || context.previousStep.createdAt,
+          }
+        : undefined,
+    );
+  } catch {
+    await prisma.outreachSequenceStep.update({
+      where: { id: claim.step.id },
+      data: {
+        status: "SCHEDULED",
+        claimedAt: null,
+        claimedByRunId: null,
+        errorMessage: "generation_failed_retryable",
+      },
+    });
+    throw new AutomationSkipError("generation_failed_retryable");
+  }
 
-  const sendResult = await sendGmailEmail({
-    accessToken: tokenResult.accessToken,
-    from: claim.mailbox.gmailAddress,
-    fromName: senderName,
-    to: context.lead.email,
-    subject: email.subject,
-    bodyHtml: email.bodyHtml,
-    bodyPlain: email.bodyPlain,
-    threadId: context.previousStep?.gmailThreadId || undefined,
-  });
+  let sendResult: Awaited<ReturnType<typeof sendGmailEmail>>;
+  try {
+    sendResult = await sendGmailEmail({
+      accessToken: tokenResult.accessToken,
+      from: claim.mailbox.gmailAddress,
+      fromName: senderName,
+      to: recipientEmail,
+      subject: email.subject,
+      bodyHtml: email.bodyHtml,
+      bodyPlain: email.bodyPlain,
+      threadId: context.previousStep?.gmailThreadId || undefined,
+    });
+  } catch (error) {
+    const classification = classifySendFailure(error);
+    if (classification.kind === "retryable") {
+      throw new AutomationRetryableSendError(classification.reason);
+    }
+    if (classification.kind === "blocked") {
+      throw new AutomationSkipError(classification.reason);
+    }
+    await stopSequenceInternal(prisma, claim.sequence, classification.reason.toUpperCase());
+    throw new AutomationStoppedError(classification.reason);
+  }
 
   const sentAt = new Date();
   await prisma.outreachSequenceStep.update({
@@ -1046,7 +1691,7 @@ async function sendScheduledStep(
       mailboxId: claim.mailbox.id,
       sequenceId: claim.sequence.id,
       sequenceStepId: claim.step.id,
-      recipientEmail: context.lead.email,
+      recipientEmail: recipientEmail,
       subject: email.subject,
       bodyHtml: email.bodyHtml,
       bodyPlain: email.bodyPlain,
@@ -1099,6 +1744,7 @@ async function sendScheduledStep(
         currentStep: nextStep.stepType,
         lastSentAt: sentAt,
         nextScheduledAt: nextStep.scheduledFor,
+        stopReason: null,
       },
     });
   }
@@ -1163,6 +1809,58 @@ async function claimDueSteps(prisma: PrismaLike, runId: string, batchSize: numbe
   return claims;
 }
 
+async function rescheduleClaimStep(
+  prisma: PrismaLike,
+  claim: SchedulerClaim,
+  minutes: number,
+  reason: AutomationBlockerReason,
+) {
+  const config = JSON.parse(claim.sequence.sequenceConfigSnapshot) as OutreachSequenceConfig;
+  const nextAttempt = adjustToAllowedSendWindow(addMinutes(new Date(), minutes), config);
+  await prisma.outreachSequenceStep.update({
+    where: { id: claim.step.id },
+    data: {
+      status: "SCHEDULED",
+      claimedAt: null,
+      claimedByRunId: null,
+      scheduledFor: nextAttempt,
+      errorMessage: reason,
+    },
+  });
+  await prisma.outreachSequence.update({
+    where: { id: claim.sequence.id },
+    data: {
+      status: claim.sequence.lastSentAt ? "ACTIVE" : "QUEUED",
+      nextScheduledAt: nextAttempt,
+      stopReason: reason,
+    },
+  });
+}
+
+async function setSequenceBlocked(
+  prisma: PrismaLike,
+  claim: SchedulerClaim,
+  reason: AutomationBlockerReason,
+) {
+  await prisma.outreachSequenceStep.update({
+    where: { id: claim.step.id },
+    data: {
+      status: "SCHEDULED",
+      claimedAt: null,
+      claimedByRunId: null,
+      errorMessage: reason,
+    },
+  }).catch(() => null);
+
+  await prisma.outreachSequence.update({
+    where: { id: claim.sequence.id },
+    data: {
+      status: claim.sequence.lastSentAt ? "ACTIVE" : "QUEUED",
+      stopReason: reason,
+    },
+  }).catch(() => null);
+}
+
 export async function runAutomationScheduler() {
   const prisma = getPrisma();
   const settings = await getSettings(prisma);
@@ -1210,25 +1908,61 @@ export async function runAutomationScheduler() {
         await sendScheduledStep(prisma, claim, run.id);
         sentCount += 1;
       } catch (error) {
+        if (error instanceof AutomationSkipError) {
+          skippedCount += 1;
+          await setSequenceBlocked(prisma, claim, error.reason);
+          continue;
+        }
+
+        if (error instanceof AutomationStoppedError) {
+          skippedCount += 1;
+          continue;
+        }
+
+        if (error instanceof AutomationRetryableSendError) {
+          failedCount += 1;
+          const latestStep = await prisma.outreachSequenceStep.findUnique({
+            where: { id: claim.step.id },
+          }) as OutreachSequenceStepRecord | null;
+          const attemptCount = latestStep?.attemptCount || claim.step.attemptCount || 0;
+          if (attemptCount <= 1) {
+            await rescheduleClaimStep(prisma, claim, 15, error.reason);
+          } else if (attemptCount <= 2) {
+            await rescheduleClaimStep(prisma, claim, 60, error.reason);
+          } else {
+            await setSequenceBlocked(prisma, claim, error.reason);
+          }
+          continue;
+        }
+
+        const classification = classifySendFailure(error);
+        if (classification.kind === "retryable") {
+          failedCount += 1;
+          const latestStep = await prisma.outreachSequenceStep.findUnique({
+            where: { id: claim.step.id },
+          }) as OutreachSequenceStepRecord | null;
+          const attemptCount = latestStep?.attemptCount || claim.step.attemptCount || 0;
+          if (attemptCount <= 1) {
+            await rescheduleClaimStep(prisma, claim, 15, classification.reason);
+          } else if (attemptCount <= 2) {
+            await rescheduleClaimStep(prisma, claim, 60, classification.reason);
+          } else {
+            await setSequenceBlocked(prisma, claim, classification.reason);
+          }
+          continue;
+        }
+
+        if (classification.kind === "blocked") {
+          failedCount += 1;
+          await setSequenceBlocked(prisma, claim, classification.reason);
+          continue;
+        }
+
         failedCount += 1;
-        await prisma.outreachSequenceStep.update({
-          where: { id: claim.step.id },
-          data: {
-            status: "FAILED",
-            errorMessage: error instanceof Error ? error.message : String(error),
-          },
-        }).catch(() => null);
-        await prisma.outreachSequence.update({
-          where: { id: claim.sequence.id },
-          data: {
-            status: "FAILED",
-            stopReason: "FAILED_POLICY",
-          },
-        }).catch(() => null);
+        await stopSequenceInternal(prisma, claim.sequence, classification.reason.toUpperCase());
       }
     }
 
-    skippedCount += Math.max(0, claims.length - sentCount - failedCount);
     await prisma.outreachRun.update({
       where: { id: run.id },
       data: {

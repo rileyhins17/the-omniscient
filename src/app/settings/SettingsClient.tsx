@@ -149,7 +149,7 @@ export function SettingsClient({ runtimeStatus }: { runtimeStatus: RuntimeStatus
           <span className="gradient-text">Settings</span>
         </h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Internal runtime status for the protected Omniscient deployment.
+          Runtime controls and protected environment status for Axiom Pipeline Engine.
         </p>
       </div>
 

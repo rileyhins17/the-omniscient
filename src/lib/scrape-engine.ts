@@ -1526,16 +1526,35 @@ export async function executeScrapeJob(input: ExecuteScrapeJobInput): Promise<Ex
 
       leadsFound++;
       totalScore += scoreResult.axiomScore;
-      if (email) withEmail++;
+      if (scoreResult.hasValidEmail) withEmail++;
       tierCounts[scoreResult.tier] = (tierCounts[scoreResult.tier] || 0) + 1;
 
-      const grade = assessment ? ` | Grade: ${assessment.overallGrade}` : "";
+      const websiteSummary = scoreResult.websiteLabel ? ` | ${scoreResult.websiteLabel}` : "";
+      const pipelineSummary = scoreResult.outreachEligible
+        ? " | Pipeline Ready"
+        : scoreResult.emailGateApplied
+          ? " | Email Gated"
+          : "";
       const disqualifiedLabel = isArchived ? " | DISQUALIFIED" : "";
       const disqualifiedReason = isArchived && disqualifyResult.primaryReason
         ? ` (${disqualifyResult.primaryReason})`
         : "";
       await input.sendEvent({
-        message: `[SCORE] ${scoreResult.axiomScore}/100 [${scoreResult.tier}]${grade}${disqualifiedLabel}${disqualifiedReason} - ${target.businessName}`,
+        message: `[SCORE] ${scoreResult.axiomScore}/100 [${scoreResult.tier}]${websiteSummary}${pipelineSummary}${disqualifiedLabel}${disqualifiedReason} - ${target.businessName}`,
+        scoreUpdate: {
+          axiomScore: scoreResult.axiomScore,
+          breakdown: scoreResult.breakdown,
+          businessName: target.businessName,
+          emailGateApplied: scoreResult.emailGateApplied,
+          fitLabel: scoreResult.fitLabel,
+          hasValidEmail: scoreResult.hasValidEmail,
+          outreachEligible: scoreResult.outreachEligible,
+          reasonSummary: scoreResult.reasonSummary,
+          tier: scoreResult.tier,
+          websiteLabel: scoreResult.websiteLabel,
+          websiteQuality: scoreResult.websiteQuality,
+          websiteStatus,
+        },
         progress: index + 1,
         stats: { leadsFound, withEmail },
         total: targets.length,
@@ -1571,7 +1590,7 @@ export async function executeScrapeJob(input: ExecuteScrapeJobInput): Promise<Ex
       message: `[DONE] Tiers S:${tierCounts.S || 0} A:${tierCounts.A || 0} B:${tierCounts.B || 0} C:${tierCounts.C || 0} D:${tierCounts.D || 0}`,
     });
     await input.sendEvent({
-      message: "[DONE] Export the protected results from The Vault or /api/leads/export.",
+      message: "[DONE] Export the protected results from Vault or /api/leads/export.",
     });
     await input.sendEvent({ _done: true, stats: { avgScore, leadsFound, withEmail } });
 

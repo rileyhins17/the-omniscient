@@ -133,6 +133,25 @@ export function parseSSELine(message: string): ParseResult {
         }
     }
 
+    if (m.includes("[SCORE]")) {
+        result.level = "score";
+        if (m.includes("DISQUALIFIED")) {
+            result.stage = "disqualify";
+            result.increments.disqualified = 1;
+        } else {
+            result.stage = "enrich";
+            result.increments.accepted = 1;
+        }
+
+        const nameMatch = m.match(/-\s(.+)$/);
+        const tierMatch = m.match(/\[([SABCD])\]/);
+        if (nameMatch && tierMatch) {
+            result.event = `Scored: ${nameMatch[1]} [${tierMatch[1]}]`;
+        } else if (nameMatch) {
+            result.event = `Scored: ${nameMatch[1]}`;
+        }
+    }
+
     // Job done / write phase
     if (m.includes("[💾] Call Sheet:") || m.includes("[📊] Tiers:")) {
         result.stage = "write";

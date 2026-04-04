@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { hasValidPipelineEmail, isLeadOutreachEligible } from "@/lib/lead-qualification";
 import { getPrisma } from "@/lib/prisma";
 import { requireApiSession } from "@/lib/session";
 
@@ -17,7 +18,7 @@ export async function GET(request: Request) {
     });
 
     const total = leads.length;
-    const withEmail = leads.filter((lead) => lead.email && lead.email.length > 0).length;
+    const withEmail = leads.filter((lead) => hasValidPipelineEmail(lead)).length;
     const withPhone = leads.filter((lead) => lead.phone && lead.phone.length > 0).length;
     const missingWebsite = leads.filter((lead) => lead.websiteStatus === "MISSING").length;
     const activeWebsite = leads.filter((lead) => lead.websiteStatus === "ACTIVE").length;
@@ -105,12 +106,7 @@ export async function GET(request: Request) {
       .map(([type, count]) => ({ type, count }))
       .sort((a, b) => b.count - a.count);
 
-    const callableLeads = leads.filter((lead) => {
-      const goodTier = ["S", "A", "B"].includes(lead.axiomTier || "");
-      const goodPhone = (lead.phoneConfidence || 0) > 0.6;
-      const goodContact = (lead.emailConfidence || 0) > 0.4 || (lead.socialLink && lead.socialLink.length > 0);
-      return goodTier && goodPhone && goodContact;
-    }).length;
+    const callableLeads = leads.filter((lead) => isLeadOutreachEligible(lead)).length;
 
     const nicheMap: Record<string, number> = {};
     leads.forEach((lead) => {
@@ -191,7 +187,7 @@ export async function GET(request: Request) {
       raw: total,
       enriched: leads.filter((lead) => lead.tacticalNote && lead.tacticalNote !== "No intelligence generated.").length,
       scored: scored.length,
-      contactable: leads.filter((lead) => (lead.email && lead.email.length > 0) || (lead.phone && lead.phone.length > 0)).length,
+      contactable: leads.filter((lead) => hasValidPipelineEmail(lead)).length,
     };
 
     const totalArchived = await prisma.lead.count({ where: { isArchived: true } });

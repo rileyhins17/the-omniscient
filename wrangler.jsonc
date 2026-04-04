@@ -31,7 +31,7 @@
     "RATE_LIMIT_MAX_SCRAPE": "20",
     "RATE_LIMIT_MAX_EXPORT": "20",
     "SCRAPE_CONCURRENCY_LIMIT": "1",
-    "SCRAPE_TIMEOUT_MS": "600000"
+    "SCRAPE_TIMEOUT_MS": "1800000"
   },
   "d1_databases": [
     {

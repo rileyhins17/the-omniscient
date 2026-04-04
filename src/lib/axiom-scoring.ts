@@ -1,406 +1,600 @@
-/**
- * Axiom Scoring Engine — Sales-Probability Score
- * 
- * Computes a 0–100 score predicting likelihood Axiom can close the deal.
- * 4 buckets: Business Value (0-30), Pain & Opportunity (0-40), 
- * Reachability (0-20), Local Fit & Priority (0-10)
- */
-
-// ═══ TYPES ═══
+import { AXIOM_OUTREACH_MIN_SCORE, getWebsiteQualityLabel, hasValidPipelineEmail } from "./lead-qualification";
 
 export interface PainSignal {
-    type: "CONVERSION" | "SPEED" | "TRUST" | "SEO" | "NO_WEBSITE" | "DESIGN" | "FUNCTIONALITY";
-    severity: number; // 1-5
-    evidence: string;
-    source: "site_scan" | "ai_analysis" | "heuristic" | "maps_data";
+  type:
+    | "CONVERSION"
+    | "SPEED"
+    | "TRUST"
+    | "SEO"
+    | "NO_WEBSITE"
+    | "DESIGN"
+    | "FUNCTIONALITY"
+    | "FIT"
+    | "CONTACT"
+    | "LOCAL";
+  severity: number;
+  evidence: string;
+  source: "site_scan" | "ai_analysis" | "heuristic" | "maps_data";
 }
 
 export interface ScoreBreakdown {
-    businessValue: number;       // 0-30
-    painOpportunity: number;     // 0-40
-    reachability: number;        // 0-20
-    localFit: number;            // 0-10
-}
-
-export interface AxiomScoreResult {
-    axiomScore: number;          // 0-100
-    tier: string;                // S, A, B, C, D
-    breakdown: ScoreBreakdown;
-    painSignals: PainSignal[];
+  businessValue: number;
+  painOpportunity: number;
+  reachability: number;
+  localFit: number;
 }
 
 export interface WebsiteAssessment {
-    speedRisk: number;           // 0-5
-    conversionRisk: number;      // 0-5
-    trustRisk: number;           // 0-5
-    seoRisk: number;             // 0-5
-    overallGrade: string;        // A-F
-    topFixes: string[];          // 3 quick-win fixes
+  speedRisk: number;
+  conversionRisk: number;
+  trustRisk: number;
+  seoRisk: number;
+  overallGrade: string;
+  topFixes: string[];
 }
 
 export interface ContactQuality {
-    emailType: "owner" | "staff" | "generic" | "unknown";
-    emailConfidence: number;     // 0-1
-    phoneConfidence: number;     // 0-1
+  emailType: "owner" | "staff" | "generic" | "unknown";
+  emailConfidence: number;
+  phoneConfidence: number;
+  emailFlags?: string[];
+  phoneFlags?: string[];
 }
 
-// ═══ CONSTANTS ═══
+export interface AxiomScoreResult {
+  axiomScore: number;
+  tier: string;
+  breakdown: ScoreBreakdown;
+  painSignals: PainSignal[];
+  outreachEligible: boolean;
+  hasValidEmail: boolean;
+  emailGateApplied: boolean;
+  websiteQuality: "NO_WEBSITE" | "WEAK_WEBSITE" | "STRONG_WEBSITE";
+  websiteLabel: string;
+  reasonCodes: string[];
+  reasonSummary: string[];
+  fitLabel: "Weak" | "Promising" | "Strong" | "Pipeline Ready";
+}
 
-const HIGH_LTV_INDUSTRIES = [
-    "dentist", "dental", "orthodont",
-    "med spa", "med-spa", "medspa", "medical spa", "aesthetic",
-    "law", "lawyer", "attorney", "legal",
-    "roofing", "roofer",
-    "hvac", "heating", "cooling", "air conditioning",
-    "plumb", "plumber", "plumbing",
-    "electric", "electrician",
-    "landscap", "lawn",
-    "auto", "car detailing", "auto detailing",
-    "home renovation", "renovation", "remodel",
-    "concrete", "paving", "asphalt",
-    "clinic", "private clinic", "physiother", "chiropr",
-    "cabinet", "custom cabinet", "kitchen",
-    "pool", "hot tub",
-    "solar", "solar panel",
-    "real estate", "realtor",
-    "cleaning", "commercial cleaning", "janitorial",
-    "pest control",
-    "moving", "mover",
-    "garage door",
-    "fencing", "fence",
-    "tree service", "arborist",
-    "painting", "painter",
-    "flooring",
-    "window", "door",
-    "siding",
-    "insulation",
-    "demolition",
-    "excavat",
-    "vet", "veterinar",
-    "optom", "eye",
+const SERVICE_BUSINESS_KEYWORDS = [
+  "roof",
+  "roofer",
+  "hvac",
+  "heating",
+  "cooling",
+  "plumb",
+  "electric",
+  "landscap",
+  "lawn",
+  "concrete",
+  "paving",
+  "asphalt",
+  "cleaning",
+  "janitorial",
+  "med spa",
+  "medspa",
+  "medical spa",
+  "dent",
+  "orthodont",
+  "clinic",
+  "physio",
+  "chiropr",
+  "auto detail",
+  "detailing",
+  "painting",
+  "painter",
+  "flooring",
+  "fence",
+  "fencing",
+  "tree service",
+  "arborist",
+  "garage door",
+  "window",
+  "siding",
+  "insulation",
+  "renovat",
+  "remodel",
+  "cabinet",
+  "kitchen",
+  "pest control",
+  "moving",
+  "mover",
+  "pool",
+  "solar",
+  "vet",
+  "veterinar",
+];
+
+const MODERATE_FIT_KEYWORDS = [
+  "law",
+  "lawyer",
+  "realtor",
+  "real estate",
+  "insurance",
+  "broker",
+  "accounting",
+  "bookkeeping",
+  "consulting",
+  "photography",
+  "wellness",
+  "fitness",
+  "gym",
+  "spa",
+  "salon",
+  "barber",
+];
+
+const LOW_FIT_KEYWORDS = [
+  "food truck",
+  "thrift",
+  "charity",
+  "nonprofit",
+  "church",
+  "freelance",
+  "garage sale",
+  "flea market",
 ];
 
 export const AXIOM_PRIORITY_CITIES = [
-    "kitchener", "waterloo", "cambridge", "guelph",
-    "hamilton", "london", "brantford", "stratford",
-    "woodstock", "st. catharines", "niagara falls",
-    "burlington", "oakville", "milton", "brampton",
-    "mississauga", "toronto", "barrie",
+  "kitchener",
+  "waterloo",
+  "cambridge",
+  "guelph",
+  "hamilton",
+  "london",
+  "brantford",
+  "stratford",
+  "woodstock",
+  "burlington",
+  "oakville",
+  "milton",
+  "mississauga",
+  "toronto",
 ];
 
-const AXIOM_CORE_CITIES = [
-    "kitchener", "waterloo", "cambridge", "guelph",
-    "hamilton", "london",
-];
+const AXIOM_CORE_CITIES = ["kitchener", "waterloo", "cambridge", "guelph"];
 
-// ═══ SCORING FUNCTIONS ═══
-
-/**
- * A) Business Value (0-30)
- * Signals the client can pay and has real revenue.
- */
-export function scoreBusinessValue(
-    niche: string,
-    category: string,
-    rating: number,
-    reviewCount: number,
-    websiteContent: string,
-): number {
-    let score = 0;
-    const lower = `${niche} ${category}`.toLowerCase();
-
-    // Industry high-LTV check (+0-10)
-    const isHighLTV = HIGH_LTV_INDUSTRIES.some(ind => lower.includes(ind));
-    if (isHighLTV) score += 10;
-
-    // Revenue surface area (+0-10)
-    // Check for signals of real business in website content
-    const contentLower = websiteContent.toLowerCase();
-    const revenueSurfaces = [
-        contentLower.includes("services") || contentLower.includes("our services"),
-        contentLower.includes("pricing") || contentLower.includes("rates") || contentLower.includes("quote"),
-        contentLower.includes("book") || contentLower.includes("schedule") || contentLower.includes("appointment"),
-        contentLower.includes("team") || contentLower.includes("staff") || contentLower.includes("meet our"),
-        contentLower.includes("location") || contentLower.includes("locations") || contentLower.includes("branches"),
-        contentLower.includes("hiring") || contentLower.includes("careers") || contentLower.includes("join our team"),
-        contentLower.includes("since") || contentLower.includes("established") || contentLower.includes("years of experience"),
-    ];
-    const surfaceCount = revenueSurfaces.filter(Boolean).length;
-    score += Math.min(surfaceCount * 2, 10);
-
-    // Review volume & rating consistency (+0-10)
-    if (reviewCount >= 100 && rating >= 4.0) score += 10;
-    else if (reviewCount >= 50 && rating >= 3.8) score += 8;
-    else if (reviewCount >= 20 && rating >= 3.5) score += 6;
-    else if (reviewCount >= 10 && rating >= 3.0) score += 4;
-    else if (reviewCount >= 5) score += 2;
-
-    return Math.min(score, 30);
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
 
-/**
- * B) Pain & Opportunity (0-40)
- * This is the core. Scoring the reason to buy.
- */
-export function scorePainOpportunity(
-    websiteStatus: string,
-    assessment: WebsiteAssessment | null,
-    painSignals: PainSignal[],
-    reviewCount: number,
-): number {
-    let score = 0;
-
-    // No website but verified business (+20)
-    if (websiteStatus === "MISSING") {
-        if (reviewCount >= 3) score += 20; // Verified real business
-        else score += 12; // Might not be real enough
-    }
-
-    if (assessment && websiteStatus === "ACTIVE") {
-        // Speed/performance risk (+0-15)
-        score += Math.min(assessment.speedRisk * 3, 15);
-
-        // Conversion funnel weakness (+0-15)
-        score += Math.min(assessment.conversionRisk * 3, 15);
-
-        // Trust/tech debt (+0-10)
-        score += Math.min(assessment.trustRisk * 2, 10);
-    }
-
-    // Cap based on pain signals - if we found no actual problems, cap lower
-    const highSeveritySignals = painSignals.filter(s => s.severity >= 3).length;
-    if (highSeveritySignals === 0 && websiteStatus === "ACTIVE") {
-        score = Math.min(score, 10);
-    }
-
-    return Math.min(score, 40);
+function normalizeText(...parts: Array<string | null | undefined>) {
+  return parts
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
 }
 
-/**
- * C) Reachability (0-20)
- */
-export function scoreReachability(
-    contact: ContactQuality,
-    hasContactForm: boolean,
-    hasSocialMessaging: boolean,
-): number {
-    let score = 0;
-
-    // Phone quality (+0-8)
-    score += Math.round(contact.phoneConfidence * 8);
-
-    // Email quality (+0-8)
-    if (contact.emailType === "owner") score += Math.round(contact.emailConfidence * 8);
-    else if (contact.emailType === "staff") score += Math.round(contact.emailConfidence * 6);
-    else if (contact.emailType === "generic") score += Math.round(contact.emailConfidence * 4);
-    else score += Math.round(contact.emailConfidence * 2);
-
-    // Contact path quality (+0-4)
-    if (hasContactForm) score += 2;
-    if (hasSocialMessaging) score += 2;
-
-    return Math.min(score, 20);
+function getWebsiteRiskScore(assessment: WebsiteAssessment | null) {
+  if (!assessment) return null;
+  return assessment.speedRisk + assessment.conversionRisk + assessment.trustRisk + assessment.seoRisk;
 }
 
-/**
- * D) Local Fit & Priority (0-10)
- */
-export function scoreLocalFit(
-    city: string,
-    reviewContent: string,
-): number {
-    let score = 0;
-    const cityLower = city.toLowerCase().trim();
+function classifyWebsiteQuality(
+  websiteStatus: string,
+  assessment: WebsiteAssessment | null,
+  painSignals: PainSignal[],
+): AxiomScoreResult["websiteQuality"] {
+  if (websiteStatus === "MISSING") {
+    return "NO_WEBSITE";
+  }
 
-    // Within Axiom's priority cities (+0-6)
-    if (AXIOM_CORE_CITIES.includes(cityLower)) score += 6;
-    else if (AXIOM_PRIORITY_CITIES.includes(cityLower)) score += 4;
-    else if (cityLower.includes("ontario") || cityLower.includes(", on")) score += 2;
+  const risk = getWebsiteRiskScore(assessment);
+  const severeWebsitePain = painSignals.some(
+    (signal) =>
+      (signal.type === "CONVERSION" ||
+        signal.type === "DESIGN" ||
+        signal.type === "SPEED" ||
+        signal.type === "TRUST" ||
+        signal.type === "FUNCTIONALITY") &&
+      signal.severity >= 3,
+  );
 
-    // Recency/intent signals (+0-4)
-    const contentLower = reviewContent.toLowerCase();
-    const intentSignals = [
-        contentLower.includes("new location") || contentLower.includes("just opened") || contentLower.includes("grand opening"),
-        contentLower.includes("hiring") || contentLower.includes("looking for"),
-        contentLower.includes("renovated") || contentLower.includes("new management") || contentLower.includes("under new"),
-        contentLower.includes("expanding") || contentLower.includes("second location"),
-    ];
-    score += Math.min(intentSignals.filter(Boolean).length * 2, 4);
+  if ((typeof risk === "number" && risk <= 5) || assessment?.overallGrade === "A" || assessment?.overallGrade === "B") {
+    return severeWebsitePain ? "WEAK_WEBSITE" : "STRONG_WEBSITE";
+  }
 
-    return Math.min(score, 10);
+  return "WEAK_WEBSITE";
 }
 
-/**
- * Compute tier from axiomScore with pain signal validation.
- * Hard rule: A lead cannot be S/A without at least two pain signals.
- */
-export function computeTier(axiomScore: number, painSignals: PainSignal[]): string {
-    const highSeverityPains = painSignals.filter(s => s.severity >= 2).length;
+function scoreServiceFit(text: string) {
+  if (SERVICE_BUSINESS_KEYWORDS.some((keyword) => text.includes(keyword))) {
+    return 10;
+  }
 
-    // Must have at least one pain signal to be S-tier
-    if (axiomScore >= 80 && highSeverityPains >= 1) return "S";
-    if (axiomScore >= 80) return "A"; // Demoted for lack of pain
+  if (MODERATE_FIT_KEYWORDS.some((keyword) => text.includes(keyword))) {
+    return 6;
+  }
 
-    if (axiomScore >= 60) return "A";
-    if (axiomScore >= 40) return "B";
-    if (axiomScore >= 20) return "C";
-    return "D";
+  if (LOW_FIT_KEYWORDS.some((keyword) => text.includes(keyword))) {
+    return 1;
+  }
+
+  return 4;
 }
 
-/**
- * Full Axiom score computation.
- */
+function scoreBusinessValue(input: {
+  niche: string;
+  category: string;
+  rating: number;
+  reviewCount: number;
+  websiteStatus: string;
+  websiteContent: string;
+}) {
+  const text = normalizeText(input.niche, input.category, input.websiteContent);
+  let score = 0;
+
+  score += scoreServiceFit(text);
+
+  if (input.reviewCount >= 100 && input.rating >= 4.1) score += 8;
+  else if (input.reviewCount >= 40 && input.rating >= 3.8) score += 6;
+  else if (input.reviewCount >= 15) score += 4;
+  else if (input.reviewCount >= 5) score += 2;
+
+  const revenueSurfaceSignals = [
+    "services",
+    "quote",
+    "estimate",
+    "book",
+    "schedule",
+    "appointment",
+    "locations",
+    "team",
+    "financing",
+    "projects",
+    "gallery",
+    "portfolio",
+  ].filter((signal) => text.includes(signal)).length;
+  score += clamp(revenueSurfaceSignals, 0, 7);
+
+  if (input.websiteStatus === "MISSING" && input.reviewCount >= 5) {
+    score += 2;
+  }
+
+  return clamp(score, 0, 25);
+}
+
+function scorePainOpportunity(input: {
+  websiteStatus: string;
+  assessment: WebsiteAssessment | null;
+  painSignals: PainSignal[];
+  reviewCount: number;
+}) {
+  let score = 0;
+
+  if (input.websiteStatus === "MISSING") {
+    score += input.reviewCount >= 5 ? 22 : 15;
+  }
+
+  if (input.assessment && input.websiteStatus === "ACTIVE") {
+    score += clamp(input.assessment.conversionRisk * 3, 0, 15);
+    score += clamp(input.assessment.trustRisk * 2, 0, 8);
+    score += clamp(input.assessment.speedRisk * 2, 0, 6);
+    score += clamp(input.assessment.seoRisk, 0, 4);
+  }
+
+  const severePainSignals = input.painSignals.filter((signal) => signal.severity >= 3).length;
+  const moderatePainSignals = input.painSignals.filter((signal) => signal.severity === 2).length;
+  score += clamp(severePainSignals * 2 + moderatePainSignals, 0, 8);
+
+  if (input.websiteStatus === "ACTIVE" && severePainSignals === 0 && moderatePainSignals === 0) {
+    score = Math.min(score, 10);
+  }
+
+  return clamp(score, 0, 35);
+}
+
+function scoreReachability(input: {
+  contact: ContactQuality;
+  hasContactForm: boolean;
+  hasSocialMessaging: boolean;
+}) {
+  let score = 0;
+
+  const email = {
+    email: "present",
+    emailConfidence: input.contact.emailConfidence,
+    emailType: input.contact.emailType,
+    emailFlags: input.contact.emailFlags || [],
+  };
+
+  if (hasValidPipelineEmail(email)) {
+    score += 15;
+  } else if (input.contact.emailType !== "unknown" && input.contact.emailConfidence >= 0.35) {
+    score += 6;
+  }
+
+  score += Math.round(clamp(input.contact.phoneConfidence, 0, 1) * 6);
+  if (input.hasContactForm) score += 2;
+  if (input.hasSocialMessaging) score += 2;
+
+  return clamp(score, 0, 25);
+}
+
+function scoreLocalFit(city: string, reviewContent: string, nicheText: string) {
+  const cityLower = city.toLowerCase().trim();
+  const text = normalizeText(reviewContent, nicheText);
+  let score = 0;
+
+  if (AXIOM_CORE_CITIES.includes(cityLower)) score += 8;
+  else if (AXIOM_PRIORITY_CITIES.includes(cityLower)) score += 6;
+  else if (cityLower.includes("ontario") || cityLower.includes(", on")) score += 3;
+  else score += 1;
+
+  const growthSignals = ["new location", "expanding", "hiring", "book now", "book online", "quote"];
+  score += clamp(growthSignals.filter((signal) => text.includes(signal)).length * 2, 0, 7);
+
+  return clamp(score, 0, 15);
+}
+
+function computeTier(score: number) {
+  if (score >= 85) return "S";
+  if (score >= 70) return "A";
+  if (score >= 50) return "B";
+  if (score >= AXIOM_OUTREACH_MIN_SCORE) return "C";
+  return "D";
+}
+
+function dedupeReasonSummary(items: string[]) {
+  return Array.from(new Set(items)).slice(0, 4);
+}
+
+function buildReasonSummary(input: {
+  websiteQuality: AxiomScoreResult["websiteQuality"];
+  hasValidEmail: boolean;
+  serviceFitScore: number;
+  localFit: number;
+  assessment: WebsiteAssessment | null;
+  reviewCount: number;
+}) {
+  const reasons: string[] = [];
+  const codes: string[] = [];
+
+  if (input.websiteQuality === "NO_WEBSITE") {
+    reasons.push("No website found, so there is immediate infrastructure upside.");
+    codes.push("no_website");
+  } else if (input.websiteQuality === "WEAK_WEBSITE") {
+    reasons.push("The current website shows real technical or conversion weaknesses.");
+    codes.push("weak_website");
+  } else {
+    reasons.push("The website looks stronger, so the opportunity depends more on fit and contactability.");
+    codes.push("strong_website");
+  }
+
+  if (input.hasValidEmail) {
+    reasons.push("A vetted email is available, so the lead is directly reachable.");
+    codes.push("valid_email");
+  } else {
+    reasons.push("No vetted email is available, so the score is capped below outreach range.");
+    codes.push("email_gate");
+  }
+
+  if (input.serviceFitScore >= 8) {
+    reasons.push("This business fits Axiom's strongest local service-business profile.");
+    codes.push("service_fit");
+  } else if (input.serviceFitScore >= 5) {
+    reasons.push("The business is a moderate fit if the site and conversion opportunity are real.");
+    codes.push("moderate_fit");
+  } else {
+    reasons.push("This is a weaker strategic fit unless the pain is unusually strong.");
+    codes.push("weak_fit");
+  }
+
+  if (input.localFit >= 8) {
+    reasons.push("The location is inside Axiom's preferred operating market.");
+    codes.push("priority_market");
+  }
+
+  if (input.assessment && (input.assessment.conversionRisk >= 3 || input.assessment.trustRisk >= 3)) {
+    reasons.push("The site likely needs conversion and trust improvements, not just cosmetic polish.");
+    codes.push("conversion_pain");
+  }
+
+  if (input.reviewCount >= 15) {
+    reasons.push("The business shows enough market activity to justify a serious web infrastructure upgrade.");
+    codes.push("legitimate_business");
+  }
+
+  return {
+    reasonCodes: dedupeReasonSummary(codes),
+    reasonSummary: dedupeReasonSummary(reasons),
+  };
+}
+
 export function computeAxiomScore(input: {
-    niche: string;
-    category: string;
-    city: string;
-    rating: number;
-    reviewCount: number;
-    websiteStatus: string;
-    websiteContent: string;
-    assessment: WebsiteAssessment | null;
-    painSignals: PainSignal[];
-    contact: ContactQuality;
-    hasContactForm: boolean;
-    hasSocialMessaging: boolean;
-    reviewContent: string;
+  niche: string;
+  category: string;
+  city: string;
+  rating: number;
+  reviewCount: number;
+  websiteStatus: string;
+  websiteContent: string;
+  assessment: WebsiteAssessment | null;
+  painSignals: PainSignal[];
+  contact: ContactQuality;
+  hasContactForm: boolean;
+  hasSocialMessaging: boolean;
+  reviewContent: string;
 }): AxiomScoreResult {
-    const businessValue = scoreBusinessValue(
-        input.niche, input.category, input.rating, input.reviewCount, input.websiteContent
-    );
-    const painOpportunity = scorePainOpportunity(
-        input.websiteStatus, input.assessment, input.painSignals, input.reviewCount
-    );
-    const reachability = scoreReachability(
-        input.contact, input.hasContactForm, input.hasSocialMessaging
-    );
-    const localFit = scoreLocalFit(input.city, input.reviewContent);
+  const websiteQuality = classifyWebsiteQuality(input.websiteStatus, input.assessment, input.painSignals);
+  const serviceFitScore = scoreServiceFit(normalizeText(input.niche, input.category));
+  const businessValue = scoreBusinessValue(input);
+  const painOpportunity = scorePainOpportunity(input);
+  const reachability = scoreReachability(input);
+  const localFit = scoreLocalFit(input.city, input.reviewContent, normalizeText(input.niche, input.category));
+  const rawScore = clamp(businessValue + painOpportunity + reachability + localFit, 0, 100);
 
-    const axiomScore = Math.min(businessValue + painOpportunity + reachability + localFit, 100);
-    const tier = computeTier(axiomScore, input.painSignals);
+  const hasValidEmail = hasValidPipelineEmail({
+    email: "present",
+    emailConfidence: input.contact.emailConfidence,
+    emailType: input.contact.emailType,
+    emailFlags: input.contact.emailFlags || [],
+  });
 
-    return {
-        axiomScore,
-        tier,
-        breakdown: { businessValue, painOpportunity, reachability, localFit },
-        painSignals: input.painSignals,
-    };
+  const axiomScore = hasValidEmail ? rawScore : Math.min(rawScore, AXIOM_OUTREACH_MIN_SCORE - 1);
+  const tier = computeTier(axiomScore);
+  const outreachEligible = hasValidEmail && axiomScore > AXIOM_OUTREACH_MIN_SCORE;
+  const emailGateApplied = !hasValidEmail && rawScore >= AXIOM_OUTREACH_MIN_SCORE;
+
+  const websiteRiskScore = getWebsiteRiskScore(input.assessment);
+  const { reasonCodes, reasonSummary } = buildReasonSummary({
+    assessment: input.assessment,
+    hasValidEmail,
+    localFit,
+    reviewCount: input.reviewCount,
+    serviceFitScore,
+    websiteQuality,
+  });
+
+  return {
+    axiomScore,
+    tier,
+    breakdown: {
+      businessValue,
+      painOpportunity,
+      reachability,
+      localFit,
+    },
+    painSignals: input.painSignals,
+    outreachEligible,
+    hasValidEmail,
+    emailGateApplied,
+    websiteQuality,
+    websiteLabel: getWebsiteQualityLabel(input.websiteStatus, input.assessment?.overallGrade, websiteRiskScore),
+    reasonCodes,
+    reasonSummary,
+    fitLabel: outreachEligible
+      ? axiomScore >= 70
+        ? "Pipeline Ready"
+        : "Strong"
+      : axiomScore >= AXIOM_OUTREACH_MIN_SCORE
+        ? "Promising"
+        : "Weak",
+  };
 }
 
-/**
- * Backfill scoring for existing leads that lack website scan data.
- * Uses only the structured data available in the DB.
- */
-export function computeAxiomScoreFromDbLead(lead: {
-    niche: string;
-    category: string | null;
-    city: string;
-    rating: number | null;
-    reviewCount: number | null;
-    websiteStatus: string | null;
-    email: string | null;
-    phone: string | null;
-    socialLink: string | null;
-    contactName: string | null;
-    tacticalNote: string | null;
-}): AxiomScoreResult {
-    // Build pain signals from available data
-    const painSignals: PainSignal[] = [];
+function buildBackfillPainSignals(lead: {
+  websiteStatus: string | null;
+  reviewCount: number | null;
+  tacticalNote: string | null;
+}) {
+  const painSignals: PainSignal[] = [];
 
-    if (lead.websiteStatus === "MISSING") {
-        painSignals.push({
-            type: "NO_WEBSITE",
-            severity: 4,
-            evidence: "No website found — business relies on Google listing and word-of-mouth only",
-            source: "maps_data",
-        });
-        if ((lead.reviewCount || 0) >= 5) {
-            painSignals.push({
-                type: "CONVERSION",
-                severity: 3,
-                evidence: `Active business with ${lead.reviewCount} reviews but zero web presence — losing leads to competitors who show up online`,
-                source: "heuristic",
-            });
-        }
-    }
-
-    // Parse tactical note for pain signals
-    const note = (lead.tacticalNote || "").toLowerCase();
-    if (note.includes("poor") || note.includes("outdated") || note.includes("broken")) {
-        painSignals.push({
-            type: "DESIGN",
-            severity: 3,
-            evidence: `AI assessment flagged website quality issues: ${(lead.tacticalNote || "").substring(0, 100)}`,
-            source: "ai_analysis",
-        });
-    }
-    if (note.includes("no call") || note.includes("no cta") || note.includes("no form") || note.includes("no booking")) {
-        painSignals.push({
-            type: "CONVERSION",
-            severity: 3,
-            evidence: "No clear conversion path detected on website",
-            source: "ai_analysis",
-        });
-    }
-
-    // Contact quality from available data
-    const contact = validateContactBasic(lead.email, lead.phone);
-    const hasContactForm = false; // Unknown for backfill
-    const hasSocialMessaging = !!(lead.socialLink && lead.socialLink.includes("facebook"));
-
-    return computeAxiomScore({
-        niche: lead.niche,
-        category: lead.category || "",
-        city: lead.city,
-        rating: lead.rating || 0,
-        reviewCount: lead.reviewCount || 0,
-        websiteStatus: lead.websiteStatus || "MISSING",
-        websiteContent: lead.tacticalNote || "",
-        assessment: null,
-        painSignals,
-        contact,
-        hasContactForm,
-        hasSocialMessaging,
-        reviewContent: "",
+  if (lead.websiteStatus === "MISSING") {
+    painSignals.push({
+      type: "NO_WEBSITE",
+      severity: 4,
+      evidence: "No website found for the business.",
+      source: "maps_data",
     });
+  }
+
+  const note = (lead.tacticalNote || "").toLowerCase();
+  if (note.includes("outdated") || note.includes("poor") || note.includes("broken") || note.includes("cheap")) {
+    painSignals.push({
+      type: "DESIGN",
+      severity: 3,
+      evidence: "Stored analysis notes indicate visible website quality issues.",
+      source: "ai_analysis",
+    });
+  }
+  if (
+    note.includes("no cta") ||
+    note.includes("no form") ||
+    note.includes("no booking") ||
+    note.includes("hard to contact") ||
+    note.includes("weak conversion")
+  ) {
+    painSignals.push({
+      type: "CONVERSION",
+      severity: 3,
+      evidence: "Stored notes suggest weak conversion structure.",
+      source: "ai_analysis",
+    });
+  }
+
+  if ((lead.reviewCount || 0) >= 10 && lead.websiteStatus === "MISSING") {
+    painSignals.push({
+      type: "CONVERSION",
+      severity: 3,
+      evidence: "The business is active enough that missing web presence likely costs real demand.",
+      source: "heuristic",
+    });
+  }
+
+  return painSignals;
 }
 
-/**
- * Basic contact validation for backfill (no network calls).
- */
 function validateContactBasic(email: string | null, phone: string | null): ContactQuality {
-    let emailType: ContactQuality["emailType"] = "unknown";
-    let emailConfidence = 0;
-    let phoneConfidence = 0;
+  const emailValue = (email || "").toLowerCase().trim();
+  const flags: string[] = [];
 
-    if (email && email.length > 0) {
-        const e = email.toLowerCase();
-        const localPart = e.split("@")[0] || "";
-        const isFreeProvider = /@(gmail|yahoo|hotmail|outlook|icloud|live|msn|protonmail|mail\.com|zoho)\./.test(e);
-        const looksLikePerson = /^[a-z]+([._-][a-z]+)+$/.test(localPart) || /^[a-z]{4,}$/.test(localPart);
-        if (e.startsWith("info@") || e.startsWith("contact@") || e.startsWith("hello@") || e.startsWith("office@") || e.startsWith("admin@")) {
-            emailType = "generic";
-            emailConfidence = 0.5;
-        } else if (isFreeProvider && looksLikePerson) {
-            emailType = "staff";
-            emailConfidence = 0.45;
-        } else if (isFreeProvider) {
-            emailType = "staff";
-            emailConfidence = 0.35;
-        } else {
-            emailType = "staff";
-            emailConfidence = 0.7;
-        }
+  let emailType: ContactQuality["emailType"] = "unknown";
+  let emailConfidence = 0;
+  if (emailValue) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue)) {
+      flags.push("invalid_format");
+    } else if (/^(info|contact|hello|office|admin|support|sales|bookings?)@/.test(emailValue)) {
+      emailType = "generic";
+      emailConfidence = emailValue.includes("@gmail.") || emailValue.includes("@yahoo.")
+        ? 0.28
+        : 0.48;
+    } else if (
+      emailValue.includes("@gmail.") ||
+      emailValue.includes("@outlook.") ||
+      emailValue.includes("@hotmail.") ||
+      emailValue.includes("@icloud.")
+    ) {
+      emailType = "staff";
+      emailConfidence = 0.42;
+    } else {
+      emailType = "owner";
+      emailConfidence = 0.78;
     }
+  } else {
+    flags.push("no_email");
+  }
 
-    if (phone && phone.length >= 10) {
-        const digits = phone.replace(/\D/g, "");
-        if (digits.length === 10 || digits.length === 11) {
-            phoneConfidence = 0.8;
-        } else {
-            phoneConfidence = 0.3;
-        }
-    }
+  let phoneConfidence = 0;
+  if (phone && phone.replace(/\D/g, "").length >= 10) {
+    phoneConfidence = 0.8;
+  }
 
-    return { emailType, emailConfidence, phoneConfidence };
+  return {
+    emailType,
+    emailConfidence,
+    phoneConfidence,
+    emailFlags: flags,
+    phoneFlags: [],
+  };
+}
+
+export function computeAxiomScoreFromDbLead(lead: {
+  niche: string;
+  category: string | null;
+  city: string;
+  rating: number | null;
+  reviewCount: number | null;
+  websiteStatus: string | null;
+  email: string | null;
+  phone: string | null;
+  socialLink: string | null;
+  contactName: string | null;
+  tacticalNote: string | null;
+}) {
+  return computeAxiomScore({
+    niche: lead.niche,
+    category: lead.category || "",
+    city: lead.city,
+    rating: lead.rating || 0,
+    reviewCount: lead.reviewCount || 0,
+    websiteStatus: lead.websiteStatus || "MISSING",
+    websiteContent: lead.tacticalNote || "",
+    assessment: null,
+    painSignals: buildBackfillPainSignals(lead),
+    contact: validateContactBasic(lead.email, lead.phone),
+    hasContactForm: false,
+    hasSocialMessaging: Boolean(lead.socialLink && lead.socialLink.length > 0),
+    reviewContent: lead.tacticalNote || "",
+  });
 }

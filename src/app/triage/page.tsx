@@ -1,8 +1,5 @@
-import TriageClient from "./TriageClient";
-import { requireSession } from "@/lib/session";
+import { redirect } from "next/navigation";
 
-export default async function TriagePage() {
-  await requireSession();
-
-  return <TriageClient />;
+export default function TriagePage() {
+  redirect("/vault");
 }

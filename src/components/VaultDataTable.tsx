@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label"
 import { OutreachEditorSheet } from "@/components/outreach/outreach-editor-sheet"
 import { OutreachStatusBadge } from "@/components/outreach/outreach-status-badge"
 import { formatOutreachDate, getOutreachChannelLabel, isContactedOutreachStatus } from "@/lib/outreach"
+import { formatAppDate } from "@/lib/time"
 import {
     Search, Download, Trash2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight,
     ArrowUpDown, ExternalLink, Phone, Mail, User, MapPin, Globe, Filter, X,
@@ -288,7 +289,7 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                 let val = (l as any)[c.key]
                 if (val == null) val = ""
                 if (c.key === "createdAt" && val) {
-                    val = new Date(val).toLocaleDateString("en-CA")
+                    val = formatAppDate(val, undefined, "")
                 }
                 val = String(val).replace(/"/g, '""')
                 return `"${val}"`
@@ -944,7 +945,7 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                                                 </div>
                                             )}
                                             <div className="text-[10px] text-zinc-600">
-                                                Added: {new Date(lead.createdAt).toLocaleDateString("en-CA")}
+                                                Added: {formatAppDate(lead.createdAt)}
                                             </div>
                                         </div>
                                     </div>
@@ -1194,7 +1195,7 @@ export default function VaultDataTable({ initialLeads }: { initialLeads: Lead[] 
                                                             </div>
                                                         )}
                                                         <div className="mt-2 text-[10px] text-zinc-600">
-                                                            Added: {new Date(lead.createdAt).toLocaleDateString("en-CA")}
+                                                            Added: {formatAppDate(lead.createdAt)}
                                                         </div>
                                                     </div>
                                                     <div className="glass rounded-lg p-4 space-y-2 min-w-0">

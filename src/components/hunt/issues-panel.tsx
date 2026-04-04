@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { type HuntError } from "@/lib/hunt/hunt-session-store";
 import { AlertTriangle, Copy, Check, ChevronDown, ChevronRight, RotateCcw, X } from "lucide-react";
 import { useToast } from "@/components/ui/toast-provider";
+import { formatAppTime } from "@/lib/time";
 
 interface IssuesPanelProps {
     errors: HuntError[];
@@ -48,7 +49,7 @@ export function IssuesPanel({ errors, onRetryJob, onDismiss }: IssuesPanelProps)
                                         ? <ChevronDown className="w-3 h-3" />
                                         : <ChevronRight className="w-3 h-3" />
                                     }
-                                    {new Date(error.timestamp).toLocaleTimeString()}
+                                    {formatAppTime(error.timestamp)}
                                     <span className="text-zinc-700">|</span>
                                     <span className="text-zinc-600">{error.jobContext}</span>
                                 </button>

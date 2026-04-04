@@ -106,6 +106,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
             }
             send({
               ...event.payload,
+              eventId: event.id,
               eventType: event.eventType,
               jobId,
             });

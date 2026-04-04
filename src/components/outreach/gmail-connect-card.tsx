@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Mail, MailCheck, MailX, Loader2, Unplug } from "lucide-react";
+import { Loader2, Mail, MailCheck, MailX, Unplug } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -35,7 +35,7 @@ export function GmailConnectCard() {
         setStatus(await res.json());
       }
     } catch {
-      // Silently fail
+      // Keep the existing UI if the request fails.
     } finally {
       setLoading(false);
     }
@@ -62,7 +62,7 @@ export function GmailConnectCard() {
         setStatus({ connected: false });
       }
     } catch {
-      // Silently fail
+      // Keep the existing UI if disconnect fails.
     } finally {
       setDisconnecting(false);
     }
@@ -70,84 +70,91 @@ export function GmailConnectCard() {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-white/[0.06] bg-black/20 px-4 py-3">
-        <Loader2 className="h-4 w-4 animate-spin text-zinc-600" />
-        <span className="text-xs text-zinc-600">Checking Gmail connection...</span>
+      <div className="flex items-center gap-3 rounded-[24px] border border-white/[0.06] bg-white/[0.02] px-4 py-4">
+        <Loader2 className="h-4 w-4 animate-spin text-zinc-500" />
+        <span className="text-sm text-zinc-400">Checking connected Gmail mailboxes...</span>
       </div>
     );
   }
 
   if (!status?.connected) {
     return (
-      <div className="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-500/10">
-            <MailX className="h-4 w-4 text-amber-400" />
-          </div>
-          <div>
-            <div className="text-xs font-semibold text-white">Gmail Not Connected</div>
-            <div className="text-[10px] text-zinc-500">
-              Connect your Gmail to send outreach emails
+      <div className="rounded-[24px] border border-amber-500/15 bg-amber-500/[0.04] px-4 py-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10">
+              <MailX className="h-5 w-5 text-amber-400" />
+            </div>
+            <div>
+              <div className="text-sm font-medium text-white">No Gmail mailbox connected</div>
+              <p className="mt-1 text-sm leading-6 text-zinc-400">
+                Connect at least one Gmail inbox to enable manual sends, follow-ups, and automation.
+              </p>
             </div>
           </div>
+          <Button
+            onClick={handleConnect}
+            className="h-9 rounded-full bg-white px-4 text-sm text-black hover:bg-zinc-200"
+          >
+            <Mail className="h-4 w-4" />
+            Connect Gmail
+          </Button>
         </div>
-        <Button
-          onClick={handleConnect}
-          size="sm"
-          className="gap-1.5 bg-gradient-to-r from-amber-600 to-orange-600 text-xs font-bold text-white hover:from-amber-500 hover:to-orange-500"
-        >
-          <Mail className="h-3.5 w-3.5" />
-          Connect Gmail
-        </Button>
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/10">
-            <MailCheck className="h-4 w-4 text-emerald-400" />
+    <div className="rounded-[24px] border border-white/[0.06] bg-white/[0.02] px-4 py-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10">
+            <MailCheck className="h-5 w-5 text-emerald-400" />
           </div>
           <div>
-            <div className="flex items-center gap-2 text-xs font-semibold text-white">
-              Gmail Connected
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            <div className="flex items-center gap-2 text-sm font-medium text-white">
+              Mailboxes connected
+              <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
             </div>
-            <div className="font-mono text-[10px] text-emerald-300/80">
-              {status.connections?.length || 1} mailbox{status.connections?.length === 1 ? "" : "es"} available
-            </div>
+            <p className="mt-1 text-sm leading-6 text-zinc-400">
+              {status.connections?.length || 1} mailbox
+              {(status.connections?.length || 1) === 1 ? "" : "es"} available for manual and automated sending.
+            </p>
           </div>
         </div>
-        <div className="flex gap-2">
+
+        <div className="flex flex-wrap gap-2">
           <Button
             onClick={handleConnect}
-            size="sm"
-            className="gap-1.5 bg-gradient-to-r from-emerald-600 to-cyan-600 text-xs font-bold text-white hover:from-emerald-500 hover:to-cyan-500"
+            className="h-9 rounded-full bg-white px-4 text-sm text-black hover:bg-zinc-200"
           >
-            <Mail className="h-3.5 w-3.5" />
+            <Mail className="h-4 w-4" />
             Add Mailbox
           </Button>
           <Button
             onClick={handleDisconnect}
             disabled={disconnecting}
             variant="ghost"
-            size="sm"
-            className="gap-1.5 border border-white/[0.08] text-xs text-zinc-500 hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400"
+            className="h-9 rounded-full border border-white/10 px-4 text-sm text-zinc-300 hover:bg-white/[0.04]"
           >
-            <Unplug className="h-3.5 w-3.5" />
-            {disconnecting ? "..." : "Disconnect One"}
+            <Unplug className="h-4 w-4" />
+            {disconnecting ? "Disconnecting..." : "Disconnect One"}
           </Button>
         </div>
       </div>
+
       {(status.mailboxes?.length || 0) > 0 && (
-        <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        <div className="mt-4 flex flex-wrap gap-2">
           {status.mailboxes?.map((mailbox) => (
-            <div key={mailbox.id} className="rounded-md border border-white/10 bg-black/20 px-3 py-2">
-              <div className="text-xs font-semibold text-white">{mailbox.label || mailbox.gmailAddress}</div>
-              <div className="font-mono text-[10px] text-emerald-300/80">{mailbox.gmailAddress}</div>
-              <div className="mt-1 text-[10px] text-zinc-500">{mailbox.status}</div>
+            <div
+              key={mailbox.id}
+              className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-zinc-300"
+            >
+              <span className="font-medium text-white">{mailbox.label || mailbox.gmailAddress}</span>
+              <span className="mx-2 text-zinc-600">/</span>
+              <span className="font-mono text-zinc-400">{mailbox.gmailAddress}</span>
+              <span className="mx-2 text-zinc-600">/</span>
+              <span className="text-zinc-500">{mailbox.status}</span>
             </div>
           ))}
         </div>

@@ -75,6 +75,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     eventPayload.stats = payload.stats;
   }
 
+  if (payload.scoreUpdate && typeof payload.scoreUpdate === "object" && !Array.isArray(payload.scoreUpdate)) {
+    eventPayload.scoreUpdate = payload.scoreUpdate;
+  }
+
   if (payload._done === true) {
     eventPayload._done = true;
   }
